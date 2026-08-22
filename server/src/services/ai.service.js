@@ -1,0 +1,294 @@
+const { GoogleGenAI } = require("@google/genai");
+const {interviewPlanSchema} = require("../validators/interviewPlan.validator")
+const { questionSchema } = require("../validators/question.validator");
+
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
+
+const testGeminiConnection = async () => {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: "Say hello from my AI Interview Agent in one sentence.",
+    });
+
+    return response.text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    throw error;
+  }
+};
+
+const generateInterviewPlan = async ({
+  role,
+  difficulty,
+  jobDescription,
+  resumeText,
+}) => {
+  try {
+    const resume = resumeText?.trim()
+      ? resumeText
+      : "No resume was provided. Do not assume or invent any candidate experience.";
+
+    const prompt = `
+You are an expert technical interviewer designing a realistic one-on-one interview.
+
+Your task is to create an adaptive interview strategy based on:
+
+- The candidate's role
+- The selected interview difficulty
+- The job description
+- The candidate's resume
+
+The goal is to assess the candidate realistically rather than generate a fixed questionnaire.
+
+IMPORTANT RULES:
+
+1. Do NOT generate interview questions yet.
+2. Create only the interview blueprint.
+3. The interview must be adaptive.
+4. Do not invent, assume, or fabricate candidate experience that is not present in the resume.
+5. Give greater emphasis to areas that are important to the job.
+6. A technically heavy job description should result in greater technical emphasis.
+7. Relevant projects should be investigated deeply to assess:
+   - the candidate's actual contribution
+   - technical understanding
+   - architecture decisions
+   - implementation details
+   - trade-offs
+   - challenges encountered
+   - failure handling
+   - scalability
+   - security
+   - originality and ownership
+8. Resume-based assessment should identify claims and experience that should be verified.
+9. Project-based assessment should focus specifically on deep investigation of projects mentioned in the resume.
+10. Problem-solving assessment should reflect both the role and the selected difficulty.
+11. Behavioral assessment must focus on workplace behavior and mindset, NOT technical knowledge.
+12. Behavioral competencies may include:
+   - communication
+   - ownership
+   - accountability
+   - conflict resolution
+   - adaptability
+   - prioritization
+   - leadership
+   - handling feedback
+   - decision making
+   - working under pressure
+13. Behavioral scenarios may involve:
+   - team conflict
+   - disagreement with a manager
+   - deadline pressure
+   - ambiguous requirements
+   - competing priorities
+   - taking responsibility for a mistake
+   - receiving criticism
+   - ethical dilemmas
+   - difficult stakeholder situations
+14. Do not turn behavioral scenarios into technical problem-solving questions.
+15. The interview should be bounded between 15 and 25 questions overall.
+16. The numbers 15 and 25 represent the overall interview range, NOT a fixed number of questions for each category.
+17. Category priorities represent assessment importance, not a fixed percentage of questions.
+18. The actual number and order of questions will be decided later by an adaptive interview engine based on the candidate's answers.
+
+ALLOWED VALUES:
+
+primaryFocus:
+- technical
+- resumeBased
+- projectBased
+- problemSolving
+- behavioral
+
+priority:
+- low
+- medium
+- high
+- critical
+
+targetDepth:
+- surface
+- moderate
+- deep
+- very-deep
+
+problemSolving difficulty:
+- easy
+- medium
+- hard
+
+CANDIDATE INFORMATION:
+
+ROLE:
+${role}
+
+DIFFICULTY:
+${difficulty}
+
+JOB DESCRIPTION:
+${jobDescription}
+
+RESUME:
+${resume}
+
+OUTPUT REQUIREMENTS:
+
+Return ONLY valid JSON.
+
+Do not include:
+- Markdown
+- Code fences
+- Explanations
+- Comments
+- Additional text before or after the JSON
+
+Use exactly this structure:
+
+{
+  "interviewStrategy": {
+    "primaryFocus": "<choose one allowed primaryFocus>",
+    "questionRange": {
+      "minimum": 15,
+      "maximum": 25
+    }
+  },
+
+  "technical": {
+    "priority": "<choose one allowed priority>",
+    "topics": [],
+    "targetDepth": "<choose one allowed targetDepth>"
+  },
+
+  "resumeBased": {
+    "priority": "<choose one allowed priority>",
+    "areas": [],
+    "targetDepth": "<choose one allowed targetDepth>"
+  },
+
+  "projectBased": {
+    "priority": "<choose one allowed priority>",
+    "projects": [
+      {
+        "name": "",
+        "technologies": [],
+        "areasToProbe": [],
+        "targetDepth": "<choose one allowed targetDepth>"
+      }
+    ]
+  },
+
+  "problemSolving": {
+    "priority": "<choose one allowed priority>",
+    "areas": [],
+    "difficulty": "<choose one allowed problemSolving difficulty>"
+  },
+
+  "behavioral": {
+    "priority": "<choose one allowed priority>",
+    "competencies": [],
+    "scenarioTypes": []
+  }
+}
+`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: prompt,
+    });
+
+    const text = response.text;
+    const plan = JSON.parse(text);
+
+    const validatePlan = interviewPlanSchema.parse(plan);
+
+    return validatePlan;
+    
+  } catch (error) {
+    console.error("Interview Plan Generation Error:", error);
+    throw error;
+  }
+};
+
+const generateQuestion = async(interview) => {
+
+  const prompt = `
+  You are an expert technical interviewer conducting a realistic adaptive interview.
+
+ROLE:
+${interview.role}
+
+DIFFICULTY:
+${interview.difficulty}
+
+JOB DESCRIPTION:
+${interview.jobDescription}
+
+RESUME:
+${interview.resumeText}
+
+INTERVIEW PLAN:
+${JSON.stringify(interview.interviewPlan, null, 2)}
+
+PREVIOUS CONVERSATION:
+${JSON.stringify(interview.conversation, null, 2)}
+
+CURRENT QUESTION NUMBER:
+${interview.currentQuestion}
+
+Your task is to generate ONLY the next best interview question.
+
+RULES:
+
+1. Ask exactly ONE question.
+
+2. Follow the interview plan and prioritize areas marked as "critical" or "high".
+
+3. Consider previous questions and answers to avoid unnecessary repetition.
+
+4. If a previous answer was weak or incomplete, you may ask a relevant follow-up question.
+
+5. If the previous topic has been explored sufficiently,move to another important area.
+
+6. Match the question difficulty to the selected difficulty level.
+
+7. Make the question realistic, specific, and appropriate for the candidate's role.
+
+Return ONLY valid JSON in exactly this format:
+
+{
+  "question": "The interview question",
+  "category": "technical",
+  "topic": "Specific topic being tested",
+  "reason": "Why this question was selected based on the interview plan and conversation"
+}
+`;
+
+const response = await ai.models.generateContent({
+  model: "gemini-3.5-flash-lite",
+  contents : prompt,
+
+});
+
+const text = response.text;
+
+const cleanedText = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+const question = JSON.parse(cleanedText);
+
+questionSchema.parse(question);
+
+return question;
+};
+
+
+module.exports = {
+  testGeminiConnection,
+  generateInterviewPlan,
+  generateQuestion,
+};
