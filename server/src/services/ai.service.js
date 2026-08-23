@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require("@google/genai");
 const {interviewPlanSchema} = require("../validators/interviewPlan.validator")
 const { questionSchema } = require("../validators/question.validator");
+const { answerEvaluationSchema } = require("../validators/answer.validator");
 
 
 const ai = new GoogleGenAI({
@@ -287,8 +288,98 @@ return question;
 };
 
 
+const evaluateAnswer = async( interview , question , answer) => {
+  const prompt = `
+  You are an expert technical interviewer evaluating a candidate's answer.
+
+ROLE:
+${interview.role}
+
+DIFFICULTY:
+${interview.difficulty}
+
+JOB DESCRIPTION:
+${interview.jobDescription}
+
+INTERVIEW QUESTION:
+${question}
+
+CANDIDATE ANSWER:
+${answer}
+
+Your task is to evaluate the candidate's answer fairly and realistically.
+
+EVALUATION RULES:
+
+1. Give a score between 0 and 100.
+
+2. Evaluate the answer based on:
+   - correctness
+   - technical understanding
+   - depth
+   - clarity
+   - relevance to the question
+
+3. Do not give a high score just because the answer is long.
+
+4. Do not be unnecessarily harsh.
+
+5. Identify specific strengths demonstrated in the answer.
+
+6. Identify specific weaknesses or missing concepts.
+
+7. The evaluation should help the candidate understand how to improve.
+
+Return ONLY valid JSON.
+
+Do not include:
+- Markdown
+- Code fences
+- Explanations outside JSON
+- Additional text
+
+Use exactly this structure:
+
+{
+  "score": 0,
+  "evaluation": "Overall evaluation of the candidate's answer",
+  "strengths": [],
+  "weaknesses": []
+}
+ `;
+
+ try {
+  const response = await ai.models.generateContent({
+    model : "gemini-3.5-flash-lite",
+    contents : prompt,
+  });
+
+  const text = response.text;
+
+  const cleanedText = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+   const evaluation = JSON.parse(cleanedText);
+
+   const validateEvaluation = 
+     answerEvaluationSchema.parse(evaluation);
+
+   return validateEvaluation;
+ }
+
+catch(error) {
+  console.error("Answer Evaluation Error : ",error);
+  throw error;
+}
+
+};
+
+
 module.exports = {
   testGeminiConnection,
   generateInterviewPlan,
   generateQuestion,
+  evaluateAnswer,
 };

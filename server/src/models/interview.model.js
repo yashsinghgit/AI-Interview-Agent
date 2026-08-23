@@ -21,12 +21,21 @@ const conversationSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+
+    strengths: {
+      type: [String],
+      default: [],
+    },
+
+    weaknesses: {
+      type: [String],
+      default: [],
+    },
   },
   {
     _id: true,
-  }
+  },
 );
-
 
 const interviewSchema = new mongoose.Schema(
   {
@@ -205,9 +214,8 @@ const interviewSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
-
 
 const Interview = mongoose.model("Interview", interviewSchema);
 

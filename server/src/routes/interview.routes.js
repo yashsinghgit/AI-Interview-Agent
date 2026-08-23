@@ -7,6 +7,7 @@ const {
   updateInterview,
   completeInterview,
   getNextQuestion,
+  submitAnswer,
 } = require("../controllers/interview.controller");
 
 const authMiddleware = require("../middleware/auth.middleware");
@@ -47,5 +48,11 @@ router.post("/interviews/:id/question",
   authMiddleware,
   getNextQuestion,
 )
+
+router.post(
+  "/interviews/:id/answer",
+  authMiddleware,
+  submitAnswer
+);
 
 module.exports = router;
