@@ -3,6 +3,7 @@ const {
   generateInterviewPlan,
   generateQuestion,
   evaluateAnswer,
+  generateFinalReport,
 } = require("../services/ai.service");
 
 //generate plan
@@ -263,6 +264,10 @@ const completeInterview = async (req, res) => {
         message: "Interview is already completed",
       });
     }
+
+    const finalReport = await generateFinalReport(interview);
+    
+    interview.finalReport = finalReport;
 
     interview.status = "completed";
 

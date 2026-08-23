@@ -1,8 +1,10 @@
 const { GoogleGenAI } = require("@google/genai");
-const {interviewPlanSchema} = require("../validators/interviewPlan.validator")
+const {
+  interviewPlanSchema,
+} = require("../validators/interviewPlan.validator");
 const { questionSchema } = require("../validators/question.validator");
 const { answerEvaluationSchema } = require("../validators/answer.validator");
-
+const { finalReportSchema } = require("../validators/finalReport.validator");
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -206,15 +208,13 @@ Use exactly this structure:
     const validatePlan = interviewPlanSchema.parse(plan);
 
     return validatePlan;
-    
   } catch (error) {
     console.error("Interview Plan Generation Error:", error);
     throw error;
   }
 };
 
-const generateQuestion = async(interview) => {
-
+const generateQuestion = async (interview) => {
   const prompt = `
   You are an expert technical interviewer conducting a realistic adaptive interview.
 
@@ -267,28 +267,26 @@ Return ONLY valid JSON in exactly this format:
 }
 `;
 
-const response = await ai.models.generateContent({
-  model: "gemini-3.5-flash-lite",
-  contents : prompt,
+  const response = await ai.models.generateContent({
+    model: "gemini-3.5-flash-lite",
+    contents: prompt,
+  });
 
-});
+  const text = response.text;
 
-const text = response.text;
-
-const cleanedText = text
+  const cleanedText = text
     .replace(/```json/g, "")
     .replace(/```/g, "")
     .trim();
 
-const question = JSON.parse(cleanedText);
+  const question = JSON.parse(cleanedText);
 
-questionSchema.parse(question);
+  questionSchema.parse(question);
 
-return question;
+  return question;
 };
 
-
-const evaluateAnswer = async( interview , question , answer) => {
+const evaluateAnswer = async (interview, question, answer) => {
   const prompt = `
   You are an expert technical interviewer evaluating a candidate's answer.
 
@@ -348,38 +346,117 @@ Use exactly this structure:
 }
  `;
 
- try {
-  const response = await ai.models.generateContent({
-    model : "gemini-3.5-flash-lite",
-    contents : prompt,
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: prompt,
+    });
 
-  const text = response.text;
+    const text = response.text;
 
-  const cleanedText = text
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
+    const cleanedText = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
-   const evaluation = JSON.parse(cleanedText);
+    const evaluation = JSON.parse(cleanedText);
 
-   const validateEvaluation = 
-     answerEvaluationSchema.parse(evaluation);
+    const validateEvaluation = answerEvaluationSchema.parse(evaluation);
 
-   return validateEvaluation;
- }
-
-catch(error) {
-  console.error("Answer Evaluation Error : ",error);
-  throw error;
-}
-
+    return validateEvaluation;
+  } catch (error) {
+    console.error("Answer Evaluation Error : ", error);
+    throw error;
+  }
 };
 
+const generateFinalReport = async (interview) => {
+  const prompt = `
+You are an expert technical interviewer creating a final interview report.
+
+ROLE:
+${interview.role}
+
+DIFFICULTY:
+${interview.difficulty}
+
+JOB DESCRIPTION:
+${interview.jobDescription}
+
+INTERVIEW CONVERSATION:
+${JSON.stringify(interview.conversation, null, 2)}
+
+EVALUATION RULES:
+
+1. Analyze the candidate's performance across all answered questions.
+
+2. Consider:
+   - correctness
+   - technical understanding
+   - depth of knowledge
+   - consistency
+   - clarity of communication
+   - ability to handle follow-up questions
+
+3. Calculate a realistic overall score between 0 and 100.
+
+4. Identify the candidate's strongest demonstrated skills.
+
+5. Identify important weaknesses or knowledge gaps.
+
+6. Provide practical recommendations for improvement.
+
+7. Do not simply repeat the strengths and weaknesses from individual answers.
+   Analyze the overall interview performance.
+   
+Return ONLY valid JSON.
+
+Do not include:
+- Markdown
+- Code fences
+- Explanations outside JSON
+- Additional text
+
+Use exactly this structure:
+
+{
+  "overallScore": 0,
+  "strengths": [],
+  "weaknesses": [],
+  "recommendations": []
+}
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: prompt,
+    });
+
+    const text = response.text;
+
+    const cleanedText = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const report = JSON.parse(cleanedText);
+    const validateReport = finalReportSchema.parse(report);
+
+    return validateReport;
+
+
+
+  } catch (error) {
+    console.error("Final Report Generation Error:", error);
+    throw error;
+  }
+};
 
 module.exports = {
   testGeminiConnection,
   generateInterviewPlan,
   generateQuestion,
   evaluateAnswer,
+  generateFinalReport,
 };
