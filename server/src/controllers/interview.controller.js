@@ -81,10 +81,29 @@ const getNextQuestion = async (req, res) => {
       });
     }
 
+    const maximumQuestions =
+      interview.interviewPlan.interviewStrategy.questionRange.maximum;
+
+    if (interview.currentQuestion >= maximumQuestions) {
+      return res.status(400).json({
+        message: `Maximum limit of ${maximumQuestions} questions reached. Please complete the interview.`,
+      });
+    }
+
     // Check interview status
     if (interview.status === "completed") {
       return res.status(400).json({
         message: "This interview has already been completed",
+      });
+    }
+
+    const lastQuestion =
+      interview.conversation[interview.conversation.length - 1];
+
+    if (lastQuestion && !lastQuestion.answer) {
+      return res.status(400).json({
+        message:
+          "Please answer the current question before requesting a new one",
       });
     }
 
@@ -265,8 +284,14 @@ const completeInterview = async (req, res) => {
       });
     }
 
+    if (interview.currentQuestion < 15) {
+      return res.status(400).json({
+        message: "Minimum 15 questions are required to complete the interview",
+      });
+    }
+
     const finalReport = await generateFinalReport(interview);
-    
+
     interview.finalReport = finalReport;
 
     interview.status = "completed";
@@ -357,10 +382,35 @@ const submitAnswer = async (req, res) => {
 
     currentQuestion.weaknesses = evaluation.weaknesses;
 
+    // First save the final answer and evaluation
     await interview.save();
 
+    // Get maximum question limit from interview plan
+    const maximumQuestions =
+      interview.interviewPlan.interviewStrategy.questionRange.maximum;
+
+    // If maximum question limit is reached,
+    // automatically generate the final report
+
+    if (interview.currentQuestion >= maximumQuestions) {
+      const finalReport = await generateFinalReport(interview);
+
+      interview.finalReport = finalReport;
+
+      interview.status = "completed";
+
+      await interview.save();
+
+      return res.status(200).json({
+        message: "Answer evaluated and interview completed successfully",
+        evaluation,
+        finalReport,
+      });
+    }
+
+    // Normal response if the interview is not finished yet
     return res.status(200).json({
-      message: "Answer evaluated succesfully",
+      message: "Answer evaluated successfully",
       evaluation,
     });
   } catch (error) {
