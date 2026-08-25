@@ -12,7 +12,7 @@ const {
 // CREATE INTERVIEW
 // ==========================================
 
-const createInterview = async (req, res) => {
+const createInterview = async (req, res, next) => {
   try {
     const { role, difficulty, jobDescription, resumeText } = req.body;
 
@@ -47,11 +47,7 @@ const createInterview = async (req, res) => {
       interview,
     });
   } catch (error) {
-    console.error("Create Interview Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
+     next(error);
   }
 };
 
@@ -59,7 +55,7 @@ const createInterview = async (req, res) => {
 // GENERATE NEXT QUESTION
 // ==========================================
 
-const getNextQuestion = async (req, res) => {
+const getNextQuestion = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -129,19 +125,15 @@ const getNextQuestion = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Generate Question Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  next(error);
+}
 };
 
 // ==========================================
 // GET ALL MY INTERVIEWS
 // ==========================================
 
-const getMyInterviews = async (req, res) => {
+const getMyInterviews = async (req, res, next) => {
   try {
     const userId = req.user.userId;
 
@@ -153,20 +145,17 @@ const getMyInterviews = async (req, res) => {
       message: "Interviews retrieved successfully",
       interviews,
     });
-  } catch (error) {
-    console.error("Get Interviews Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
   }
+   catch (error) {
+  next(error);
+}
 };
 
 // ==========================================
 // GET SINGLE INTERVIEW
 // ==========================================
 
-const getInterviewById = async (req, res) => {
+const getInterviewById = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
     const userId = req.user.userId;
@@ -192,12 +181,9 @@ const getInterviewById = async (req, res) => {
       message: "Interview retrieved successfully",
       interview,
     });
-  } catch (error) {
-    console.error("Get Interview Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
+  } 
+  catch (error) {
+      next(error);
   }
 };
 
@@ -205,7 +191,7 @@ const getInterviewById = async (req, res) => {
 // UPDATE INTERVIEW
 // ==========================================
 
-const updateInterview = async (req, res) => {
+const updateInterview = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
     const userId = req.user.userId;
@@ -247,20 +233,17 @@ const updateInterview = async (req, res) => {
       message: "Interview updated successfully",
       interview,
     });
-  } catch (error) {
-    console.error("Update Interview Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  } 
+  catch (error) {
+  next(error);
+}
 };
 
 // ==========================================
 // COMPLETE INTERVIEW
 // ==========================================
 
-const completeInterview = async (req, res) => {
+const completeInterview = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
     const userId = req.user.userId;
@@ -302,20 +285,17 @@ const completeInterview = async (req, res) => {
       message: "Interview completed successfully",
       interview,
     });
-  } catch (error) {
-    console.error("Complete Interview Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  } 
+  catch (error) {
+  next(error);
+}
 };
 
 // ==========================================
 // SUBMIT ANSWER
 // ==========================================
 
-const submitAnswer = async (req, res) => {
+const submitAnswer = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { answer } = req.body;
@@ -413,13 +393,10 @@ const submitAnswer = async (req, res) => {
       message: "Answer evaluated successfully",
       evaluation,
     });
-  } catch (error) {
-    console.error("Submit Answer Error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  } 
+  catch (error) {
+  next(error);
+}
 };
 
 // ==========================================

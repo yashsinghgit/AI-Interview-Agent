@@ -2,7 +2,7 @@ const User = require("../models/user.model");
 const bcrypt = require("bcrypt");
 const JWT = require("jsonwebtoken");
 
-const registerUser = async (req, res) => {
+const registerUser = async (req, res, next) => {
   try {
     // 1. Get data from the request
     const { name, email, password } = req.body;
@@ -43,17 +43,14 @@ const registerUser = async (req, res) => {
       },
     });
 
-  } catch (error) {
-    console.error("Registration error:", error);
-
-    return res.status(500).json({
-      message: "Internal server error",
-    });
-  }
+  } 
+  catch (error) {
+  next(error);
+}
 };
 
 
-const loginUser = async (req,res) => {
+const loginUser = async (req, res, next) => {
     try{
         const { email, password } = req.body;
 
@@ -95,13 +92,10 @@ const loginUser = async (req,res) => {
             token : token
         });
 
-    } catch(error) {
-        console.error("Login error:", error);
-
-        return res.status(500).json({
-            message : "Interval server error",
-        });
     }
+     catch (error) {
+  next(error);
+}
 
 };
 

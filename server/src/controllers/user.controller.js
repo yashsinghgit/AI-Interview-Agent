@@ -1,6 +1,6 @@
 const User = require("../models/user.model");
 
-const getProfile = async(req,res) => {
+const getProfile = async(req, res, next) => {
     try {
         const userId = req.user.userId;
 
@@ -18,15 +18,11 @@ const getProfile = async(req,res) => {
         });
 
     }
+
     catch (error) {
-        console.error("Profile error:", error);
-
-        return res.status(500).json({
-            message : "Interval server error" ,
-
-        });
-
-    }
+    next(error);
+}
+    
 
 };
 
