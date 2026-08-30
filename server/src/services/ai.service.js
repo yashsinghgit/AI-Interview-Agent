@@ -1,10 +1,12 @@
 const { GoogleGenAI } = require("@google/genai");
+
 const {
   interviewPlanSchema,
 } = require("../validators/interviewPlan.validator");
 const { questionSchema } = require("../validators/question.validator");
 const { answerEvaluationSchema } = require("../validators/answer.validator");
 const { finalReportSchema } = require("../validators/finalReport.validator");
+const { followUpSchema } = require("../validators/followUp.validators");
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -370,6 +372,135 @@ Use exactly this structure:
   }
 };
 
+const generateFollowUp = async (interview, question, answer, evaluation) => {
+  
+const prompt = `
+You are an expert technical interviewer conducting an adaptive interview.
+
+Your job is to decide whether the candidate should receive:
+1. a follow-up question that continues probing the CURRENT topic, or
+2. a new question that moves to a DIFFERENT important topic.
+
+You must evaluate the candidate's latest answer using the interview context, current question, answer, and evaluation.
+
+INTERVIEW CONTEXT:
+Role: ${interview.role}
+Difficulty: ${interview.difficulty}
+
+JOB DESCRIPTION:
+${interview.jobDescription || "Not provided"}
+
+RESUME:
+${interview.resumeText || "Not provided"}
+
+CURRENT INTERVIEW PLAN:
+${JSON.stringify(interview.interviewPlan, null, 2)}
+
+CURRENT QUESTION:
+${question}
+
+CANDIDATE ANSWER:
+${answer}
+
+ANSWER EVALUATION:
+${JSON.stringify(evaluation, null, 2)}
+
+PREVIOUS CONVERSATION:
+${JSON.stringify(interview.conversation, null, 2)}
+
+DECISION RULES:
+
+Choose "follow_up" ONLY when:
+- The candidate's answer is substantially incomplete.
+- There is a significant technical misunderstanding.
+- There is a significant weakness that is important for evaluating the candidate.
+- The candidate made a questionable claim that needs verification.
+- An important part of the question was not addressed.
+- Further investigation of the CURRENT topic is genuinely useful for judging the candidate.
+
+Choose "new_topic" when:
+- The candidate demonstrated sufficient understanding of the current topic.
+- The answer was strong, comprehensive, technically accurate, and relevant.
+- Remaining omissions are minor or optional.
+- Further questioning would only test increasingly obscure details.
+- The current topic has already been explored sufficiently.
+- The candidate has demonstrated enough knowledge to move to another important area.
+- The candidate performed poorly on the current topic and further probing would not provide useful additional information.
+- Another important topic from the interview plan should now be assessed.
+
+IMPORTANT:
+A strong answer should normally result in "new_topic".
+
+Do NOT choose "follow_up" merely because:
+- You can think of a harder question.
+- The candidate did not mention every possible advanced technique.
+- The answer could theoretically contain more detail.
+- The candidate did not provide code when code was not explicitly required.
+- There are minor omissions that do not materially affect the evaluation.
+
+When choosing "follow_up":
+- Stay focused on the CURRENT topic.
+- Do not suddenly switch to an unrelated topic.
+- The follow-up should investigate a meaningful unresolved weakness or missing requirement.
+
+When choosing "new_topic":
+- Move to another relevant area from the interview plan.
+- Prefer high-priority topics that have not been sufficiently assessed.
+- The new question should not simply repeat the current question.
+
+FOLLOW-UP LIMIT:
+The application allows a maximum of 2 follow-up questions before moving to a new topic.
+If the current topic has already received 2 follow-up questions, choose "new_topic".
+
+QUESTION QUALITY:
+- Match the role and difficulty level.
+- Ask one clear interview question.
+- Avoid repetitive questions.
+- Do not reveal the expected answer.
+- Make the question appropriate for the candidate's demonstrated ability.
+- If moving to a new topic, choose a meaningful topic from the interview plan.
+
+OUTPUT:
+Return ONLY valid JSON.
+Do not include markdown.
+Do not include code fences.
+Do not include explanations outside the JSON.
+
+Return exactly this structure:
+
+{
+  "decision": "follow_up" or "new_topic",
+  "question": "The next interview question",
+  "category": "technical" or "resumeBased" or "projectBased" or "problemSolving" or "behavioral",
+  "topic": "Specific topic being assessed",
+  "reason": "Brief explanation for why this decision and question were chosen"
+}
+`;  
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: prompt,
+    });
+
+    const text = response.text;
+
+    const cleanedText = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const followUp = JSON.parse(cleanedText);
+
+    const validatorFollowUp = followUpSchema.parse(followUp);
+
+    return validatorFollowUp;
+  } catch (error) {
+    console.error("Follow-Up Generation Error:", error);
+    throw error;
+  }
+};
+
 const generateFinalReport = async (interview) => {
   const prompt = `
 You are an expert technical interviewer creating a final interview report.
@@ -444,9 +575,6 @@ Use exactly this structure:
     const validateReport = finalReportSchema.parse(report);
 
     return validateReport;
-
-
-
   } catch (error) {
     console.error("Final Report Generation Error:", error);
     throw error;
@@ -458,5 +586,6 @@ module.exports = {
   generateInterviewPlan,
   generateQuestion,
   evaluateAnswer,
+  generateFollowUp,
   generateFinalReport,
 };

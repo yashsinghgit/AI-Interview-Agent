@@ -3,6 +3,7 @@ const {
   generateInterviewPlan,
   generateQuestion,
   evaluateAnswer,
+  generateFollowUp,
   generateFinalReport,
 } = require("../services/ai.service");
 
@@ -25,12 +26,12 @@ const createInterview = async (req, res, next) => {
       });
     }
 
-    const interviewPlan = await generateInterviewPlan(
+    const interviewPlan = await generateInterviewPlan({
       role,
       difficulty,
       jobDescription,
-      resumeText || "",
-    );
+      resumeText: resumeText || "",
+    });
 
     // Create interview
     const interview = await Interview.create({
@@ -47,7 +48,7 @@ const createInterview = async (req, res, next) => {
       interview,
     });
   } catch (error) {
-     next(error);
+    next(error);
   }
 };
 
@@ -125,8 +126,8 @@ const getNextQuestion = async (req, res, next) => {
       },
     });
   } catch (error) {
-  next(error);
-}
+    next(error);
+  }
 };
 
 // ==========================================
@@ -145,10 +146,9 @@ const getMyInterviews = async (req, res, next) => {
       message: "Interviews retrieved successfully",
       interviews,
     });
+  } catch (error) {
+    next(error);
   }
-   catch (error) {
-  next(error);
-}
 };
 
 // ==========================================
@@ -181,9 +181,8 @@ const getInterviewById = async (req, res, next) => {
       message: "Interview retrieved successfully",
       interview,
     });
-  } 
-  catch (error) {
-      next(error);
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -233,10 +232,9 @@ const updateInterview = async (req, res, next) => {
       message: "Interview updated successfully",
       interview,
     });
-  } 
-  catch (error) {
-  next(error);
-}
+  } catch (error) {
+    next(error);
+  }
 };
 
 // ==========================================
@@ -285,10 +283,9 @@ const completeInterview = async (req, res, next) => {
       message: "Interview completed successfully",
       interview,
     });
-  } 
-  catch (error) {
-  next(error);
-}
+  } catch (error) {
+    next(error);
+  }
 };
 
 // ==========================================
@@ -388,15 +385,60 @@ const submitAnswer = async (req, res, next) => {
       });
     }
 
-    // Normal response if the interview is not finished yet
-    return res.status(200).json({
-      message: "Answer evaluated successfully",
+    const followUp = await generateFollowUp(
+      interview,
+      currentQuestion.question,
+      answer,
       evaluation,
+    );
+
+    //current topic needs deeper investigation
+    if (followUp.decision === "follow_up" && interview.followUpCount < 2) {
+      interview.conversation.push({
+        question: followUp.question,
+      });
+
+      interview.followUpCount += 1;
+      interview.currentQuestion += 1;
+      interview.currentTopic = followUp.topic;
+
+      await interview.save();
+
+      return res.status(200).json({
+        message:
+          "Answer evaluated and adaptive follow-up generated sucessfully",
+        evaluation,
+        question: {
+          number: interview.currentQuestion,
+          ...followUp,
+        },
+      });
+    }
+
+    //No-follow-up required
+    const nextQuestion = await generateQuestion(interview);
+
+    interview.conversation.push({
+      question: nextQuestion.question,
     });
-  } 
-  catch (error) {
-  next(error);
-}
+
+    interview.currentQuestion += 1;
+    interview.followUpCount = 0;
+    interview.currentTopic = nextQuestion.topic;
+
+    await interview.save();
+
+    return res.status(200).json({
+      message: "Answer evaluated and next question generated successfully",
+      evaluation,
+      question: {
+        number: interview.currentQuestion,
+        ...nextQuestion,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // ==========================================

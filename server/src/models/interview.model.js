@@ -184,6 +184,11 @@ const interviewSchema = new mongoose.Schema(
       default: 0,
     },
 
+    followUpCount: {
+      type: Number,
+      default: 0,
+    },
+
     status: {
       type: String,
       enum: ["in-progress", "completed"],
