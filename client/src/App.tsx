@@ -8,6 +8,7 @@ import ResumePage from "./pages/ResumePage";
 import FeedbackPage from "./pages/FeedbackPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFoundPage from "./pages/NotFoundPage";
+import InterviewSetupPage from "./pages/InterviewSetupPage";
 
 function App() {
   return (
@@ -18,17 +19,20 @@ function App() {
 
       <Route path="/register" element={<RegisterPage />} />
 
-      <Route path="/Dashboard" element={<DashboardPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
 
       <Route path="*" element={<NotFoundPage />} />
 
-      <Route path="/interview" element={<InterviewPage />} />
+      <Route path="/interview/setup" element={<InterviewSetupPage />} />
+
+      <Route path="/interview/:id" element={<InterviewPage />} />
 
       <Route path="/feedback" element={<FeedbackPage />} />
 
       <Route path="/resume" element={<ResumePage />} />
 
       <Route path="/profile" element={<ProfilePage />} />
+
     </Routes>
   );
 }

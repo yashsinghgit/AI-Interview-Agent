@@ -20,7 +20,7 @@ function DashboardPage() {
               icon="🎤"
               title="Start Interview"
               description="Begin an AI mock interview."
-              onClick={() => navigate("/interview")}
+              onClick={() => navigate("/interview/setup")}
             />
 
             <DashboardCard
