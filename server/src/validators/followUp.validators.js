@@ -1,7 +1,7 @@
 const {z} = require("zod");
 
 const followUpSchema = z.object({
-  decision: z.enum(["follow_up", "new_topic"]),
+  decision: z.enum(["follow_up", "new_topic", "complete"]),
   question: z.string(),
   category: z.enum([
     "technical",

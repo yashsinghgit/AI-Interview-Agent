@@ -20,34 +20,17 @@ interface Evaluation {
 }
 
 function InterviewPage() {
-  const navigate = useNavigate();
-
-  const { id } = useParams<{ id: string }>();
-
   const [question, setQuestion] = useState<InterviewQuestion | null>(null);
-
   const [answer, setAnswer] = useState("");
-
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-
   const [loadingQuestion, setLoadingQuestion] = useState(true);
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
-
   const [error, setError] = useState("");
+  const [timeLeft, setTimeLeft] = useState(30* 60);
 
-  // ============================================================
-  // TIMER
-  // ============================================================
-
-  const [timeLeft, setTimeLeft] = useState(15 * 60);
-
-  // Prevent React StrictMode from requesting the first
-  // question twice during development.
   const questionLoaded = useRef(false);
-
-  // ============================================================
-  //  LOAD FIRST AI QUESTION
-  // ============================================================
+  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
     if (!id || questionLoaded.current) {
@@ -83,10 +66,6 @@ function InterviewPage() {
     loadFirstQuestion();
   }, [id]);
 
-  // ============================================================
-  // TIMER
-  // ============================================================
-
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((previousTime) => {
@@ -102,19 +81,11 @@ function InterviewPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // ============================================================
-  // FORMAT TIMER
-  // ============================================================
-
   const minutes = Math.floor(timeLeft / 60)
     .toString()
     .padStart(2, "0");
 
   const seconds = (timeLeft % 60).toString().padStart(2, "0");
-
-  // ============================================================
-  // 🔥 UPDATE 4: SUBMIT ANSWER TO BACKEND
-  // ============================================================
 
   const handleSubmitAnswer = async () => {
     if (!id || !question) {
@@ -134,12 +105,7 @@ function InterviewPage() {
         answer: answer.trim(),
       });
 
-      // Save evaluation returned by backend
       setEvaluation(response.data.evaluation);
-
-      // ========================================================
-      // 🔥 UPDATE 5: CHECK IF INTERVIEW IS COMPLETED
-      // ========================================================
 
       if (response.data.finalReport) {
         navigate("/feedback", {
@@ -152,14 +118,8 @@ function InterviewPage() {
         return;
       }
 
-      // ========================================================
-      // 🔥 UPDATE 6: DISPLAY NEXT QUESTION
-      // ========================================================
-
       if (response.data.question) {
         setQuestion(response.data.question);
-
-        // Clear previous answer for the new question
         setAnswer("");
       }
     } catch (err) {
@@ -174,10 +134,6 @@ function InterviewPage() {
       setSubmittingAnswer(false);
     }
   };
-
-  // ============================================================
-  // 🔥 UPDATE 7: COMPLETE INTERVIEW MANUALLY
-  // ============================================================
 
   const handleFinish = async () => {
     if (!id) {
@@ -211,45 +167,39 @@ function InterviewPage() {
     }
   };
 
-  // ============================================================
-  // LOADING SCREEN
-  // ============================================================
-
   if (loadingQuestion) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-xl p-10 text-center">
-          <div className="text-4xl mb-4">🤖</div>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-10 text-center">
+          <div className="w-10 h-10 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin mx-auto mb-6"></div>
 
-          <h1 className="text-2xl font-bold">Preparing Your Interview</h1>
+          <h1 className="text-3xl font-bold text-black mb-3">
+            Preparing Your Interview
+          </h1>
 
-          <p className="text-gray-500 mt-2">
-            AI is generating your first question...
+          <p className="text-gray-500 text-lg">
+            AI is generating your interview question...
           </p>
         </div>
       </div>
     );
   }
 
-  // ============================================================
-  // ERROR SCREEN
-  // ============================================================
-
   if (error || !question) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-xl p-10 text-center max-w-md">
-          <div className="text-4xl mb-4">⚠️</div>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-10 text-center">
+          <h1 className="text-3xl font-bold text-black mb-4">
+            Unable to Load Interview
+          </h1>
 
-          <h1 className="text-2xl font-bold">Unable to Load Interview</h1>
-
-          <p className="text-red-500 mt-3">
-            {error || "Question could not be loaded."}
+          <p className="text-gray-500 mb-6">
+            {error || "No question available."}
           </p>
 
           <button
-            onClick={() => navigate("/Dashboard")}
-            className="mt-6 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
+            onClick={() => navigate("/dashboard")}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
           >
             Back to Dashboard
           </button>
@@ -258,154 +208,153 @@ function InterviewPage() {
     );
   }
 
-  // ============================================================
-  // MAIN INTERVIEW UI
-  // ============================================================
+  const progress = Math.min(
+    (question.number / 25) * 100, 100
+  );
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* HEADER */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-xl font-bold">AI Mock Interview</h1>
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-blue-600">InterviewAI</h1>
 
-            <p className="text-sm text-gray-500">Question {question.number}</p>
-          </div>
+          <div className="flex items-center gap-6">
+            <span className="text-gray-600 font-medium">
+              Question {question.number} of {25}
+            </span>
 
-          <div className="text-lg font-semibold">
-            ⏱️ {minutes}:{seconds}
+            <div
+              className={`px-4 py-2 rounded-lg font-semibold border transition-colors ${
+                timeLeft <= 120
+                  ? "bg-red-50 text-red-600 border-red-200"
+                  : timeLeft <= 300
+                    ? "bg-yellow-50 text-yellow-600 border-yellow-200"
+                    : "bg-green-50 text-green-600 border-green-200"
+              }`}
+            >
+              <span className="mr-2">Time</span>
+              {minutes}:{seconds}
+            </div>
           </div>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
-        {/* QUESTION CARD */}
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          <div className="flex justify-between items-center mb-6">
-            <span className="bg-blue-100 text-blue-700 px-4 py-2 rounded-full text-sm font-semibold">
-              Question {question.number}
-            </span>
+      <main className="max-w-5xl mx-auto px-6 py-10">
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-3">
+            <p className="text-gray-600 font-medium">Interview Progress</p>
 
-            {question.category && (
-              <span className="text-sm text-gray-500">{question.category}</span>
-            )}
+            <p className="text-gray-500">{Math.round(progress)}%</p>
           </div>
 
-          {/* 🔥 REAL AI QUESTION */}
-          <h2 className="text-2xl font-bold leading-relaxed">
-            {question.question}
-          </h2>
-
-          {question.topic && (
-            <p className="text-sm text-gray-500 mt-3">
-              Topic: {question.topic}
-            </p>
-          )}
-
-          {/* ANSWER */}
-          <div className="mt-8">
-            <label className="block font-semibold mb-3">Your Answer</label>
-
-            <textarea
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="Type your answer here..."
-              rows={10}
-              className="w-full border border-gray-300 rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={submittingAnswer}
+          <div className="w-full h-2 bg-gray-200 rounded-full">
+            <div
+              className="h-2 bg-blue-600 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
             />
-
-            <div className="flex justify-between items-center mt-3">
-              <span className="text-sm text-gray-500">
-                {answer.length} characters
-              </span>
-
-              <span className="text-sm text-gray-500">
-                Take your time and explain clearly.
-              </span>
-            </div>
-          </div>
-
-          {/* SUBMIT */}
-          <div className="mt-8 flex justify-end">
-            <button
-              onClick={handleSubmitAnswer}
-              disabled={submittingAnswer || !answer.trim()}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-8 py-3 rounded-lg font-semibold"
-            >
-              {submittingAnswer ? "Evaluating..." : "Submit Answer →"}
-            </button>
           </div>
         </div>
 
-        {/* =====================================================
-            🔥 UPDATE 8: SHOW EVALUATION
-            ===================================================== */}
+        <section className="bg-white border border-gray-300 rounded-2xl shadow-sm p-8 mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
+              {question.category || "Technical"}
+            </span>
 
-        {evaluation && (
-          <div className="bg-white rounded-2xl shadow-lg p-8 mt-8">
-            <h2 className="text-2xl font-bold mb-6">🤖 AI Evaluation</h2>
-
-            <div className="mb-6">
-              <span className="text-gray-500">Score</span>
-
-              <div className="text-4xl font-bold text-blue-600 mt-1">
-                {evaluation.score}/100
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="font-semibold text-lg mb-2">Evaluation</h3>
-
-              <p className="text-gray-700 leading-relaxed">
-                {evaluation.evaluation}
-              </p>
-            </div>
-
-            {evaluation.strengths?.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-semibold text-lg mb-2">✅ Strengths</h3>
-
-                <ul className="list-disc pl-6 text-gray-700">
-                  {evaluation.strengths.map((strength, index) => (
-                    <li key={index}>{strength}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {evaluation.weaknesses?.length > 0 && (
-              <div>
-                <h3 className="font-semibold text-lg mb-2">
-                  ⚠️ Areas to Improve
-                </h3>
-
-                <ul className="list-disc pl-6 text-gray-700">
-                  {evaluation.weaknesses.map((weakness, index) => (
-                    <li key={index}>{weakness}</li>
-                  ))}
-                </ul>
-              </div>
+            {question.topic && (
+              <span className="text-gray-500 text-sm">{question.topic}</span>
             )}
           </div>
+
+          <h2 className="text-2xl font-bold text-black leading-relaxed">
+            {question.question}
+          </h2>
+        </section>
+
+        <section className="bg-white border border-gray-300 rounded-2xl shadow-sm p-8">
+          <div className="flex justify-between items-center mb-4">
+            <label htmlFor="answer" className="text-xl font-bold text-black">
+              Your Answer
+            </label>
+
+            <span className="text-sm text-gray-400">
+              {answer.length} characters
+            </span>
+          </div>
+
+          <textarea
+            id="answer"
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            placeholder="Type your answer here..."
+            rows={9}
+            className="w-full border border-gray-300 rounded-lg px-4 py-4 text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+
+          <div className="flex justify-end mt-5">
+            <button
+              onClick={handleSubmitAnswer}
+              disabled={submittingAnswer}
+              className="bg-blue-600 text-white px-7 py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-400"
+            >
+              {submittingAnswer ? "Evaluating..." : "Submit Answer"}
+            </button>
+          </div>
+        </section>
+
+        {evaluation && (
+          <section className="bg-white border border-gray-300 rounded-2xl shadow-sm p-8 mt-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-black">AI Evaluation</h2>
+
+              <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold">
+                {evaluation.score}/10
+              </div>
+            </div>
+
+            <p className="text-gray-600 leading-relaxed mb-8">
+              {evaluation.evaluation}
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="border border-gray-300 rounded-lg p-5">
+                <h3 className="text-lg font-bold text-black mb-4">Strengths</h3>
+
+                <ul className="space-y-3">
+                  {evaluation.strengths.map((strength, index) => (
+                    <li key={index} className="text-gray-600">
+                      • {strength}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="border border-gray-300 rounded-lg p-5">
+                <h3 className="text-lg font-bold text-black mb-4">
+                  Areas to Improve
+                </h3>
+
+                <ul className="space-y-3">
+                  {evaluation.weaknesses.map((weakness, index) => (
+                    <li key={index} className="text-gray-600">
+                      • {weakness}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
         )}
 
-        {/* FINISH */}
         {question.number >= 15 && (
-          <div className="mt-8 text-center">
+          <div className="flex justify-end mt-6">
             <button
               onClick={handleFinish}
               disabled={submittingAnswer}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-8 py-3 rounded-lg font-semibold"
+              className="bg-blue-600 text-white px-7 py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-400"
             >
               Finish Interview
             </button>
-
-            <p className="text-sm text-gray-500 mt-2">
-              You have completed the minimum 15 questions.
-            </p>
           </div>
         )}
       </main>

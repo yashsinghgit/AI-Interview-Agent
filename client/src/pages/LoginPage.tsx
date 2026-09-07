@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 function LoginPage() {
+  const navigate = useNavigate();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,7 +35,7 @@ function LoginPage() {
 
       if (response.ok) {
         localStorage.setItem("token", data.token);
-        alert("Login Sucessfull");
+        navigate("/dashboard");
       } else {
         alert(data.message);
       }
@@ -89,8 +91,8 @@ function LoginPage() {
           {loading ? "Logging in..." : "Login"}
         </button>
 
-        <p className="text-centre mt-6">
-          Dont have an account?{" "}
+        <p className="text-center mt-6">
+          Don't have an account?{" "}
           <Link 
           to="/register"
           className="text-blue-600 hover:underline"

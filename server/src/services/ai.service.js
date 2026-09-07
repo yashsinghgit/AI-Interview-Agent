@@ -94,11 +94,10 @@ IMPORTANT RULES:
    - ethical dilemmas
    - difficult stakeholder situations
 14. Do not turn behavioral scenarios into technical problem-solving questions.
-15. The interview should be bounded between 15 and 25 questions overall.
-16. The numbers 15 and 25 represent the overall interview range, NOT a fixed number of questions for each category.
-17. Category priorities represent assessment importance, not a fixed percentage of questions.
-18. The actual number and order of questions will be decided later by an adaptive interview engine based on the candidate's answers.
-
+15. The interview must contain exactly 15 questions overall.
+16. The number 15 represents the total interview question limit, NOT 15 questions for each category.
+17. Category priorities represent assessment importance, not a fixed number or percentage of questions.
+18. The actual order and content of the 15 questions will be decided by the adaptive interview engine based on the candidate's answers.
 ALLOWED VALUES:
 
 primaryFocus:
@@ -283,6 +282,8 @@ Return ONLY valid JSON in exactly this format:
 
   const question = JSON.parse(cleanedText);
 
+  console.log("Gemini generated question:", question);
+
   questionSchema.parse(question);
 
   return question;
@@ -410,6 +411,12 @@ ${JSON.stringify(interview.conversation, null, 2)}
 
 DECISION RULES:
 
+You have THREE possible decisions:
+
+1. "follow_up"
+2. "new_topic"
+3. "complete"
+
 Choose "follow_up" ONLY when:
 - The candidate's answer is substantially incomplete.
 - There is a significant technical misunderstanding.
@@ -428,37 +435,20 @@ Choose "new_topic" when:
 - The candidate performed poorly on the current topic and further probing would not provide useful additional information.
 - Another important topic from the interview plan should now be assessed.
 
+Choose "complete" ONLY when:
+- The current question number is AT LEAST 15.
+- The candidate has demonstrated enough overall knowledge and competence.
+- Additional questions are unlikely to provide meaningful additional evidence.
+- The interview has covered enough important areas to make a reliable assessment.
+- Ending the interview now is better than continuing to another topic.
+
 IMPORTANT:
-A strong answer should normally result in "new_topic".
-
-Do NOT choose "follow_up" merely because:
-- You can think of a harder question.
-- The candidate did not mention every possible advanced technique.
-- The answer could theoretically contain more detail.
-- The candidate did not provide code when code was not explicitly required.
-- There are minor omissions that do not materially affect the evaluation.
-
-When choosing "follow_up":
-- Stay focused on the CURRENT topic.
-- Do not suddenly switch to an unrelated topic.
-- The follow-up should investigate a meaningful unresolved weakness or missing requirement.
-
-When choosing "new_topic":
-- Move to another relevant area from the interview plan.
-- Prefer high-priority topics that have not been sufficiently assessed.
-- The new question should not simply repeat the current question.
-
-FOLLOW-UP LIMIT:
-The application allows a maximum of 2 follow-up questions before moving to a new topic.
-If the current topic has already received 2 follow-up questions, choose "new_topic".
-
-QUESTION QUALITY:
-- Match the role and difficulty level.
-- Ask one clear interview question.
-- Avoid repetitive questions.
-- Do not reveal the expected answer.
-- Make the question appropriate for the candidate's demonstrated ability.
-- If moving to a new topic, choose a meaningful topic from the interview plan.
+- NEVER choose "complete" before Question 15.
+- The interview may continue beyond Question 15 if more assessment is useful.
+- Question 25 is the absolute maximum. The backend will force completion at Question 25.
+- A strong answer does NOT automatically mean "complete".
+- At Question 15 or later, decide whether enough evidence has been collected to finish.
+- If more assessment is useful, choose "new_topic" or "follow_up" instead.
 
 OUTPUT:
 Return ONLY valid JSON.
@@ -466,15 +456,22 @@ Do not include markdown.
 Do not include code fences.
 Do not include explanations outside the JSON.
 
+If decision is "complete":
+- Set "question" to an empty string.
+- Set "category" to the category of the last assessed question.
+- Set "topic" to the current topic.
+- Explain briefly in "reason" why the interview should end.
+
 Return exactly this structure:
 
 {
-  "decision": "follow_up" or "new_topic",
-  "question": "The next interview question",
+  "decision": "follow_up" or "new_topic" or "complete",
+  "question": "The next interview question, or an empty string if completing",
   "category": "technical" or "resumeBased" or "projectBased" or "problemSolving" or "behavioral",
   "topic": "Specific topic being assessed",
   "reason": "Brief explanation for why this decision and question were chosen"
 }
+  
 `;  
 
   try {
@@ -489,6 +486,7 @@ Return exactly this structure:
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .trim();
+
 
     const followUp = JSON.parse(cleanedText);
 
