@@ -26,7 +26,7 @@ function InterviewPage() {
   const [loadingQuestion, setLoadingQuestion] = useState(true);
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [error, setError] = useState("");
-  const [timeLeft, setTimeLeft] = useState(30* 60);
+  const [timeLeft, setTimeLeft] = useState(30 * 60); // 30 minutes in seconds
 
   const questionLoaded = useRef(false);
   const navigate = useNavigate();
@@ -69,7 +69,7 @@ function InterviewPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((previousTime) => {
-        if (previousTime <= 0) {
+        if (previousTime <= 1) {
           clearInterval(timer);
           return 0;
         }
@@ -80,6 +80,46 @@ function InterviewPage() {
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+  if (timeLeft !== 0 || !id) {
+    return;
+  }
+
+  const autoCompleteInterview = async () => {
+    try {
+      setSubmittingAnswer(true);
+      setError("");
+
+      const response = await api.patch(`/interviews/${id}/complete`, {
+  timedOut: true,
+});
+
+      navigate("/feedback", {
+        state: {
+          interviewId: id,
+          finalReport : response.data?.interview?.finalReport,
+        },
+      });
+    } catch (error) {
+      const axiosError = error as AxiosError<{
+        message?: string;
+      }>;
+
+      console.error("Failed to auto-complete interview:", error);
+
+      setError(
+        axiosError.response?.data?.message ||
+        "Time is up, The interview could not be completed. Please try again."
+      );
+    }
+    finally {
+      setSubmittingAnswer(false);
+    }
+  };
+
+  autoCompleteInterview();
+}, [timeLeft, id, navigate]);
 
   const minutes = Math.floor(timeLeft / 60)
     .toString()

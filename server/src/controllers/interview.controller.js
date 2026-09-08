@@ -500,6 +500,7 @@ const completeInterview = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
     const userId = req.user.userId;
+    const { timedOut = false } = req.body || {};
 
     const interview = await Interview.findOne({
       _id: interviewId,
@@ -521,7 +522,7 @@ const completeInterview = async (req, res, next) => {
     const minimumQuestions =
       interview.interviewPlan.interviewStrategy.questionRange.minimum;
 
-    if (interview.currentQuestion < minimumQuestions) {
+    if (!timedOut && interview.currentQuestion < minimumQuestions) {
       return res.status(400).json({
         message:
           `Minimum ${minimumQuestions} questions are required to complete the interview`,
