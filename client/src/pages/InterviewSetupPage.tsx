@@ -8,7 +8,11 @@ function InterviewSetupPage() {
   const [role, setRole] = useState("");
   const [difficulty, setDifficulty] = useState("medium");
   const [jobDescription, setJobDescription] = useState("");
-  const [resumeText, setResumeText] = useState("");
+
+  const [resumeText, setResumeText] = useState(() => {
+    return localStorage.getItem("resumeText") || "";
+  });
+
   const [loading, setLoading] = useState(false);
 
   const handleCreateInterview = async () => {
@@ -58,7 +62,10 @@ function InterviewSetupPage() {
         </p>
 
         <div className="mt-8">
-          <label className="block font-semibold mb-2">Job Role</label>
+          {/* Job Role */}
+          <label className="block font-semibold mb-2">
+            Job Role
+          </label>
 
           <input
             type="text"
@@ -68,7 +75,10 @@ function InterviewSetupPage() {
             className="w-full border rounded-lg p-3 mb-6"
           />
 
-          <label className="block font-semibold mb-2">Difficulty</label>
+          {/* Difficulty */}
+          <label className="block font-semibold mb-2">
+            Difficulty
+          </label>
 
           <select
             value={difficulty}
@@ -80,7 +90,10 @@ function InterviewSetupPage() {
             <option value="hard">Hard</option>
           </select>
 
-          <label className="block font-semibold mb-2">Job Description</label>
+          {/* Job Description */}
+          <label className="block font-semibold mb-2">
+            Job Description
+          </label>
 
           <textarea
             value={jobDescription}
@@ -90,22 +103,37 @@ function InterviewSetupPage() {
             className="w-full border rounded-lg p-3 mb-6 resize-none"
           />
 
-          <label className="block font-semibold mb-2">Resume</label>
+          {/* Resume */}
+          <label className="block font-semibold mb-2">
+            Resume
+          </label>
 
           <textarea
             value={resumeText}
-            onChange={(e) => setResumeText(e.target.value)}
-            placeholder="Paste your resume text here (optional)..."
+            onChange={(e) => {
+              setResumeText(e.target.value);
+              localStorage.setItem("resumeText", e.target.value);
+            }}
+            placeholder="Paste your resume text here or upload a resume from the Resume page..."
             rows={6}
             className="w-full border rounded-lg p-3 mb-8 resize-none"
           />
 
+          {resumeText && (
+            <p className="text-sm text-green-600 -mt-6 mb-6">
+              ✓ Resume loaded successfully
+            </p>
+          )}
+
+          {/* Create Interview */}
           <button
             onClick={handleCreateInterview}
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold disabled:bg-gray-400"
           >
-            {loading ? "Creating Interview..." : "Create Interview"}
+            {loading
+              ? "Creating Interview..."
+              : "Create Interview"}
           </button>
         </div>
       </div>

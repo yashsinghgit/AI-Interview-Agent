@@ -27,7 +27,7 @@ function App() {
 
       <Route path="/interview/:id" element={<InterviewPage />} />
 
-      <Route path="/feedback" element={<FeedbackPage />} />
+      <Route path="/feedback/:id" element={<FeedbackPage />} />
 
       <Route path="/resume" element={<ResumePage />} />
 
