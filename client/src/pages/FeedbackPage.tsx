@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AxiosError } from "axios";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Lightbulb,
+  TrendingUp,
+} from "lucide-react";
 import api from "../services/api";
 
 interface FinalReport {
@@ -60,10 +66,12 @@ function FeedbackPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-        <div className="max-w-xl w-full bg-white rounded-xl shadow-lg p-8 text-center">
-          <h1 className="text-2xl font-bold mb-3">
-            Preparing Your Feedback...
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-6">
+        <div className="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-8 text-center">
+          <div className="w-12 h-12 mx-auto mb-5 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin" />
+
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            Preparing Your Feedback
           </h1>
 
           <p className="text-gray-500">
@@ -77,20 +85,25 @@ function FeedbackPage() {
   // Error / missing report state
   if (error || !finalReport) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-        <div className="max-w-xl w-full bg-white rounded-xl shadow-lg p-8 text-center">
-          <h1 className="text-2xl font-bold mb-4">
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-6">
+        <div className="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-8 text-center">
+          <div className="w-14 h-14 mx-auto mb-5 rounded-full bg-gray-100 flex items-center justify-center">
+            <TrendingUp size={26} className="text-gray-500" />
+          </div>
+
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">
             {error || "No Interview Report Found"}
           </h1>
 
-          <p className="text-gray-500 mb-6">
+          <p className="text-gray-500 mb-7">
             Complete an interview to view your feedback.
           </p>
 
           <button
             onClick={() => navigate("/dashboard")}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-sm"
           >
+            <ArrowLeft size={18} />
             Back to Dashboard
           </button>
         </div>
@@ -98,86 +111,207 @@ function FeedbackPage() {
     );
   }
 
-  // Report state
+  const score = finalReport.overallScore;
+
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-      <div className="max-w-3xl w-full bg-white rounded-xl shadow-lg p-8">
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="flex items-center gap-3"
+          >
+            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
+              <span className="text-white font-bold">AI</span>
+            </div>
 
-        <h1 className="text-4xl font-bold text-center mb-2">
-          🎉 Interview Completed
-        </h1>
+            <span className="text-xl font-bold text-gray-900">
+              InterviewAI
+            </span>
+          </button>
 
-        <p className="text-center text-gray-500 mb-8">
-          Here's your AI-generated interview summary.
-        </p>
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-blue-600 transition"
+          >
+            <ArrowLeft size={17} />
+            Dashboard
+          </button>
+        </div>
+      </header>
 
-        {/* Overall Score */}
+      <main className="max-w-5xl mx-auto px-6 py-10 md:py-12">
+        {/* Page Heading */}
         <div className="text-center mb-10">
-          <h2 className="text-xl text-gray-500">
-            Overall Score
-          </h2>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border border-green-100 text-green-600 text-sm font-semibold mb-4">
+            <CheckCircle2 size={16} />
+            Interview Completed
+          </div>
 
-          <p className="text-6xl font-bold text-blue-600 mt-2">
-            {finalReport.overallScore}/100
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
+            Your Interview Feedback
+          </h1>
+
+          <p className="mt-3 text-gray-500">
+            Here's your AI-generated performance summary.
           </p>
         </div>
 
-        {/* Strengths */}
-        <div className="mb-8">
-          <h3 className="text-xl font-semibold mb-3">
-            ✅ Strengths
-          </h3>
+        {/* Overall Score */}
+        <section className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 md:p-10 mb-6">
+          <div className="text-center">
+            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+              Overall Score
+            </p>
 
-          <ul className="list-disc ml-6 space-y-2">
+            <div className="mt-4 flex items-end justify-center gap-2">
+              <span className="text-6xl md:text-7xl font-bold text-blue-600">
+                {score}
+              </span>
+
+              <span className="text-2xl font-semibold text-gray-400 mb-2">
+                /100
+              </span>
+            </div>
+
+            <p className="mt-3 text-sm text-gray-500">
+              Based on your overall interview performance
+            </p>
+          </div>
+        </section>
+
+        {/* Strengths */}
+        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+              <CheckCircle2 size={21} className="text-green-600" />
+            </div>
+
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Strengths
+              </h2>
+
+              <p className="text-sm text-gray-500">
+                What you did well
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
             {finalReport.strengths.map(
               (strength: string, index: number) => (
-                <li key={index}>{strength}</li>
-              )
+                <div
+                  key={index}
+                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
+                >
+                  <CheckCircle2
+                    size={19}
+                    className="text-green-600 mt-0.5 flex-shrink-0"
+                  />
+
+                  <p className="text-gray-700 leading-relaxed">
+                    {strength}
+                  </p>
+                </div>
+              ),
             )}
-          </ul>
-        </div>
+          </div>
+        </section>
 
         {/* Areas to Improve */}
-        <div className="mb-8">
-          <h3 className="text-xl font-semibold mb-3">
-            📈 Areas to Improve
-          </h3>
+        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center">
+              <TrendingUp size={21} className="text-yellow-600" />
+            </div>
 
-          <ul className="list-disc ml-6 space-y-2">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Areas to Improve
+              </h2>
+
+              <p className="text-sm text-gray-500">
+                Where you can improve
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
             {finalReport.weaknesses.map(
               (weakness: string, index: number) => (
-                <li key={index}>{weakness}</li>
-              )
+                <div
+                  key={index}
+                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
+                >
+                  <span className="w-2 h-2 rounded-full bg-yellow-500 mt-2.5 flex-shrink-0" />
+
+                  <p className="text-gray-700 leading-relaxed">
+                    {weakness}
+                  </p>
+                </div>
+              ),
             )}
-          </ul>
-        </div>
+          </div>
+        </section>
 
         {/* Recommendations */}
-        <div className="mb-10">
-          <h3 className="text-xl font-semibold mb-3">
-            💡 Recommendations
-          </h3>
+        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+              <Lightbulb size={21} className="text-blue-600" />
+            </div>
 
-          <ul className="list-disc ml-6 space-y-2">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Recommendations
+              </h2>
+
+              <p className="text-sm text-gray-500">
+                How to perform better next time
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
             {finalReport.recommendations.map(
               (recommendation: string, index: number) => (
-                <li key={index}>{recommendation}</li>
-              )
-            )}
-          </ul>
-        </div>
+                <div
+                  key={index}
+                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
+                >
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold flex-shrink-0">
+                    {index + 1}
+                  </span>
 
-        {/* Back Button */}
-        <div className="flex justify-center">
+                  <p className="text-gray-700 leading-relaxed">
+                    {recommendation}
+                  </p>
+                </div>
+              ),
+            )}
+          </div>
+        </section>
+
+        {/* Bottom Action */}
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
           <button
             onClick={() => navigate("/dashboard")}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
+            className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-sm"
           >
+            <ArrowLeft size={18} />
             Back to Dashboard
           </button>
-        </div>
 
-      </div>
+          <button
+            onClick={() => navigate("/interview/setup")}
+            className="inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition"
+          >
+            Start Another Interview
+          </button>
+        </div>
+      </main>
     </div>
   );
 }

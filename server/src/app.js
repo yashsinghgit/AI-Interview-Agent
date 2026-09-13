@@ -9,8 +9,7 @@ const errorMiddleware = require("./middleware/error.middleware");
 
 const app = express();
 
-//CORS
-
+// CORS
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:5173",
@@ -23,7 +22,6 @@ app.use("/", authRoutes);
 app.use("/", userRoutes);
 app.use("/", interviewRoutes);
 app.use("/", aiRoutes);
-
 
 app.use(errorMiddleware);
 

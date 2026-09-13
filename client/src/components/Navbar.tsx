@@ -1,63 +1,106 @@
-import { Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
-type NavbarProps = {
-  isAuthenticated?: boolean;
-};
+function Navbar() {
+  const navigate = useNavigate();
 
-function Navbar({ isAuthenticated = false }: NavbarProps) {
+  const isAuthenticated = Boolean(localStorage.getItem("token"));
+
+  const handleHowItWorks = () => {
+    if (window.location.pathname === "/") {
+      document
+        .getElementById("how-it-works")
+        ?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      navigate("/#how-it-works");
+    }
+  };
+
+  const handleFeatures = () => {
+    if (window.location.pathname === "/") {
+      document
+        .getElementById("features")
+        ?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      navigate("/#features");
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    navigate("/");
+  };
+
   return (
-    <nav className="bg-white shadow-md">
-      <div className="max-w-7xl mx-auto px-8 py-4 flex justify-between items-center">
+    <nav className="bg-white border-b border-gray-200">
+      <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
         {/* Logo */}
         <Link
           to={isAuthenticated ? "/dashboard" : "/"}
-          className="text-2xl font-bold text-blue-600"
+          className="flex items-center gap-3"
         >
-          InterviewAI
+          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
+            <span className="text-white font-bold">AI</span>
+          </div>
+
+          <span className="text-xl font-bold text-gray-900">
+            InterviewAI
+          </span>
         </Link>
 
         {/* Navigation */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-6">
           {isAuthenticated ? (
             <>
               <Link
                 to="/dashboard"
-                className="hover:text-blue-600 transition"
+                className="hidden sm:block text-sm font-medium text-gray-600 hover:text-blue-600 transition"
               >
                 Dashboard
               </Link>
 
               <Link
                 to="/profile"
-                className="hover:text-blue-600 transition"
+                className="hidden sm:block text-sm font-medium text-gray-600 hover:text-blue-600 transition"
               >
                 Profile
               </Link>
 
-              <button className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="text-sm font-semibold text-gray-600 hover:text-red-600 transition"
+              >
                 Logout
               </button>
             </>
           ) : (
             <>
-              <a href="#features" className="hover:text-blue-600 transition">
+              <button
+                type="button"
+                onClick={handleFeatures}
+                className="hidden sm:block text-sm font-medium text-gray-600 hover:text-blue-600 transition"
+              >
                 Features
-              </a>
+              </button>
 
-              <a href="#how-it-works" className="hover:text-blue-600 transition">
+              <button
+                type="button"
+                onClick={handleHowItWorks}
+                className="hidden sm:block text-sm font-medium text-gray-600 hover:text-blue-600 transition"
+              >
                 How It Works
-              </a>
+              </button>
 
               <Link
                 to="/login"
-                className="hover:text-blue-600 transition"
+                className="text-sm font-semibold text-gray-600 hover:text-blue-600 transition"
               >
                 Login
               </Link>
 
               <Link
                 to="/register"
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                className="bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 transition shadow-sm"
               >
                 Register
               </Link>

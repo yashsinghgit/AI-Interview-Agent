@@ -94,11 +94,12 @@ IMPORTANT RULES:
    - ethical dilemmas
    - difficult stakeholder situations
 14. Do not turn behavioral scenarios into technical problem-solving questions.
-15. The interview must contain exactly 15 questions overall.
-16. The number 15 represents the total interview question limit, NOT 15 questions for each category.
-17. Category priorities represent assessment importance, not a fixed number or percentage of questions.
-18. The actual order and content of the 15 questions will be decided by the adaptive interview engine based on the candidate's answers.
-ALLOWED VALUES:
+15. The interview must be bounded between 15 and 25 questions overall.
+16. The numbers 15 and 25 represent the overall interview range, NOT a fixed number of questions for each category.
+17. The interview must never contain fewer than 15 questions.
+18. The interview must never exceed 25 questions.
+19. Category priorities represent assessment importance, not a fixed percentage of questions.
+20. The actual number and order of questions will be decided by the adaptive interview engine based on the candidate's answers.
 
 primaryFocus:
 - technical
@@ -374,8 +375,7 @@ Use exactly this structure:
 };
 
 const generateFollowUp = async (interview, question, answer, evaluation) => {
-  
-const prompt = `
+  const prompt = `
 You are an expert technical interviewer conducting an adaptive interview.
 
 Your job is to decide whether the candidate should receive:
@@ -472,7 +472,7 @@ Return exactly this structure:
   "reason": "Brief explanation for why this decision and question were chosen"
 }
   
-`;  
+`;
 
   try {
     const response = await ai.models.generateContent({
@@ -486,7 +486,6 @@ Return exactly this structure:
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .trim();
-
 
     const followUp = JSON.parse(cleanedText);
 

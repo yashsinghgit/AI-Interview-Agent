@@ -9,30 +9,35 @@ import FeedbackPage from "./pages/FeedbackPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFoundPage from "./pages/NotFoundPage";
 import InterviewSetupPage from "./pages/InterviewSetupPage";
+import ProtectedRoute from "./components/ProtectedRoutes";
 
 function App() {
   return (
     <Routes>
+      {/* Public Routes */}
       <Route path="/" element={<LandingPage />} />
 
       <Route path="/login" element={<LoginPage />} />
 
       <Route path="/register" element={<RegisterPage />} />
 
-      <Route path="/dashboard" element={<DashboardPage />} />
+      {/* Protected Routes */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/dashboard" element={<DashboardPage />} />
 
+        <Route path="/interview/setup" element={<InterviewSetupPage />} />
+
+        <Route path="/interview/:id" element={<InterviewPage />} />
+
+        <Route path="/feedback/:id" element={<FeedbackPage />} />
+
+        <Route path="/resume" element={<ResumePage />} />
+
+        <Route path="/profile" element={<ProfilePage />} />
+      </Route>
+
+      {/* 404 */}
       <Route path="*" element={<NotFoundPage />} />
-
-      <Route path="/interview/setup" element={<InterviewSetupPage />} />
-
-      <Route path="/interview/:id" element={<InterviewPage />} />
-
-      <Route path="/feedback/:id" element={<FeedbackPage />} />
-
-      <Route path="/resume" element={<ResumePage />} />
-
-      <Route path="/profile" element={<ProfilePage />} />
-
     </Routes>
   );
 }
