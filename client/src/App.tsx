@@ -10,6 +10,7 @@ import ProfilePage from "./pages/ProfilePage";
 import NotFoundPage from "./pages/NotFoundPage";
 import InterviewSetupPage from "./pages/InterviewSetupPage";
 import ProtectedRoute from "./components/ProtectedRoutes";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 
 function App() {
   return (
@@ -20,6 +21,8 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
 
       <Route path="/register" element={<RegisterPage />} />
+
+      <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
 
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>

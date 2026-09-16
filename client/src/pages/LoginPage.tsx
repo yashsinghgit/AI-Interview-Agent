@@ -9,6 +9,41 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+
+  // Resend verification email
+  async function handleResendVerification() {
+    if (!username) {
+      alert("Please enter your email first.");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "http://localhost:3000/resend-verification",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: username,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("Verification email sent! Please check your inbox.");
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Something went wrong!");
+    }
+  }
 
   async function handleLogin() {
     if (!username || !password) {
@@ -36,7 +71,13 @@ function LoginPage() {
         localStorage.setItem("token", data.token);
         navigate("/dashboard");
       } else {
+        localStorage.removeItem("token");
+        
         alert(data.message);
+
+        if (response.status === 403) {
+          setShowResend(true);
+        }
       }
     } catch (error) {
       console.error(error);
@@ -159,6 +200,17 @@ function LoginPage() {
             >
               {loading ? "Logging in..." : "Login"}
             </button>
+
+            {/* Resend verification */}
+            {showResend && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                className="w-full mt-3 text-sm font-semibold text-blue-600 hover:text-blue-700 transition"
+              >
+                Resend Verification Email
+              </button>
+            )}
 
             {/* Register */}
             <p className="text-center text-sm text-gray-500 mt-6">
