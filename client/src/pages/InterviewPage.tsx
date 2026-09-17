@@ -33,68 +33,117 @@ function InterviewPage() {
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [error, setError] = useState("");
   const [timeLeft, setTimeLeft] = useState(30 * 60);
+  
+  
 
   const questionLoaded = useRef(false);
 
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
 
-  // Load first question
   useEffect(() => {
-    if (!id || questionLoaded.current) {
-      return;
-    }
+  if (!id || questionLoaded.current) {
+    return;
+  }
 
-    questionLoaded.current = true;
+  questionLoaded.current = true;
 
-    const loadFirstQuestion = async () => {
-      try {
-        setLoadingQuestion(true);
-        setError("");
+  const loadInterview = async () => {
+    try {
+      setLoadingQuestion(true);
+      setError("");
 
-        const response = await api.post(`/interviews/${id}/question`);
+      // Get the existing interview from the database
+      const response = await api.get(`/interviews/${id}`);
 
-        setQuestion(response.data.question);
-      } catch (err) {
-        const axiosError = err as AxiosError<{
-          message?: string;
-        }>;
+      const interview = response.data.interview;
 
-        console.error("Failed to load question:", err);
-
-        setError(
-          axiosError.response?.data?.message ||
-            "Failed to load interview question.",
-        );
-      } finally {
-        setLoadingQuestion(false);
+      // If interview is already completed
+      if (interview.status === "completed") {
+        setError("This interview has already been completed.");
+        return;
       }
-    };
 
-    loadFirstQuestion();
-  }, [id]);
+      // Find the latest question
+      const conversation = interview.conversation || [];
+
+      const latestQuestion =
+        conversation[conversation.length - 1];
+
+      // If there is already an unanswered question,
+      // restore it instead of generating a new one.
+      if (latestQuestion && !latestQuestion.answer) {
+        setQuestion({
+          number: interview.currentQuestion,
+          question: latestQuestion.question,
+          category: latestQuestion.category,
+          topic: latestQuestion.topic,
+          reason: latestQuestion.reason,
+          decision: latestQuestion.decision,
+        });
+
+        return;
+      }
+
+      // No unanswered question exists.
+      // Generate a new one.
+      const questionResponse = await api.post(
+        `/interviews/${id}/question`,
+      );
+
+      setQuestion(questionResponse.data.question);
+    } catch (err) {
+      const axiosError = err as AxiosError<{
+        message?: string;
+      }>;
+
+      console.error("Failed to load interview:", err);
+
+      setError(
+        axiosError.response?.data?.message ||
+          "Failed to load interview.",
+      );
+    } finally {
+      setLoadingQuestion(false);
+    }
+  };
+
+  loadInterview();
+}, [id]);
 
   // Interview timer
   // Timer pauses while AI is evaluating the answer.
+
   useEffect(() => {
-    if (submittingAnswer) {
-      return;
-    }
+  if (!id) return;
 
-    const timer = setInterval(() => {
-      setTimeLeft((previousTime) => {
-        if (previousTime <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
+  const storageKey = `interviewEndTime_${id}`;
 
-        return previousTime - 1;
-      });
-    }, 1000);
+  let savedEndTime = localStorage.getItem(storageKey);
 
-    return () => clearInterval(timer);
-  }, [submittingAnswer]);
+  if (!savedEndTime) {
+    savedEndTime = String(Date.now() + 30 * 60 * 1000);
+    localStorage.setItem(storageKey, savedEndTime);
+  }
 
+  const interviewEndTime = Number(savedEndTime);
+
+  const updateTimer = () => {
+    const remaining = Math.max(
+      0,
+      Math.floor((interviewEndTime - Date.now()) / 1000)
+    );
+
+    setTimeLeft(remaining);
+  };
+
+  updateTimer();
+
+  const timer = setInterval(updateTimer, 1000);
+
+  return () => clearInterval(timer);
+}, [id]);
+  
   // Automatically complete interview when timer reaches zero
   useEffect(() => {
     if (timeLeft !== 0 || !id) {
