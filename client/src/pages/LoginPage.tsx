@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, ArrowLeft, LogIn } from "lucide-react";
+import { AxiosError } from "axios";
+import api from "../services/api";
+
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -19,22 +22,13 @@ function LoginPage() {
     }
 
     try {
-      const response = await fetch(
-        "http://localhost:3000/resend-verification",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: username,
-          }),
-        }
-      );
+      const response = await api.post("/resend-verification", {
+        email: username,
+      });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
+      if (response.status >= 200 && response.status < 300) {
         alert("Verification email sent! Please check your inbox.");
       } else {
         alert(data.message);
@@ -54,55 +48,44 @@ function LoginPage() {
     try {
       setLoading(true);
 
-      const response = await fetch("http://localhost:3000/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: username,
-          password: password,
-        }),
+      const response = await api.post("/login", {
+        email: username,
+        password,
       });
 
-      const data = await response.json();
+      const data = response.data;
 
-      if (response.ok) {
-        localStorage.setItem("token", data.token);
-        navigate("/dashboard");
-      } else {
-        localStorage.removeItem("token");
-        
-        alert(data.message);
-
-        if (response.status === 403) {
-          setShowResend(true);
-        }
-      }
+      localStorage.setItem("token", data.token);
+      navigate("/dashboard");
     } catch (error) {
       console.error(error);
-      alert("Something went wrong!");
+
+      const axiosError = error as AxiosError<{
+        message?: string;
+      }>;
+
+      localStorage.removeItem("token");
+
+      alert(axiosError.response?.data?.message || "Something went wrong!");
+
+      if (axiosError.response?.status === 403) {
+        setShowResend(true);
+      }
     } finally {
       setLoading(false);
     }
   }
-
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto w-full px-6 py-4">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-3"
-          >
+          <Link to="/" className="inline-flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
               <span className="text-white font-bold">AI</span>
             </div>
 
-            <span className="text-xl font-bold text-gray-900">
-              InterviewAI
-            </span>
+            <span className="text-xl font-bold text-gray-900">InterviewAI</span>
           </Link>
         </div>
       </header>
@@ -178,15 +161,9 @@ function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 transition"
-                  aria-label={
-                    showPassword ? "Hide password" : "Show password"
-                  }
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? (
-                    <EyeOff size={19} />
-                  ) : (
-                    <Eye size={19} />
-                  )}
+                  {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
                 </button>
               </div>
             </div>

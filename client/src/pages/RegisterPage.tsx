@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, UserPlus, ArrowLeft } from "lucide-react";
+import api from "../services/api";
 
 function RegisterPage() {
   const navigate = useNavigate();
@@ -25,31 +26,23 @@ function RegisterPage() {
       return;
     }
 
-    try {
+   try {
       setLoading(true);
 
-      const response = await fetch("http://localhost:3000/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-        }),
+      await api.post("/register", {
+        name,
+        email,
+        password,
       });
 
-      const data = await response.json();
+      alert(
+        "Registration Successful! Please check your email to verify your account.",
+      );
 
-      if (response.ok) {
-        alert("Registration Successful! Please check your email to verify your account.");
-        navigate("/login");
-      } else {
-        alert(data.message);
-      }
+      navigate("/login");
     } catch (error) {
       console.error(error);
+
       alert("Something went wrong!");
     } finally {
       setLoading(false);
@@ -66,9 +59,7 @@ function RegisterPage() {
               <span className="text-white font-bold">AI</span>
             </div>
 
-            <span className="text-xl font-bold text-gray-900">
-              InterviewAI
-            </span>
+            <span className="text-xl font-bold text-gray-900">InterviewAI</span>
           </Link>
         </div>
       </header>
@@ -154,15 +145,9 @@ function RegisterPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 transition"
-                  aria-label={
-                    showPassword ? "Hide password" : "Show password"
-                  }
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? (
-                    <EyeOff size={19} />
-                  ) : (
-                    <Eye size={19} />
-                  )}
+                  {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
                 </button>
               </div>
             </div>
@@ -188,9 +173,7 @@ function RegisterPage() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowConfirmPassword(!showConfirmPassword)
-                  }
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 transition"
                   aria-label={
                     showConfirmPassword
@@ -244,5 +227,4 @@ function RegisterPage() {
     </div>
   );
 }
-
 export default RegisterPage;

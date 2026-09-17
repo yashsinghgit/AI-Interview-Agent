@@ -8,7 +8,6 @@ const {
   generateFinalReport,
 } = require("../services/ai.service");
 
-
 // ==========================================
 // CREATE INTERVIEW
 // ==========================================
@@ -50,7 +49,6 @@ const createInterview = async (req, res, next) => {
   }
 };
 
-
 // ==========================================
 // GET ALL MY INTERVIEWS
 // ==========================================
@@ -71,7 +69,6 @@ const getMyInterviews = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // ==========================================
 // GET SINGLE INTERVIEW
@@ -105,7 +102,6 @@ const getInterviewById = async (req, res, next) => {
   }
 };
 
-
 // ==========================================
 // UPDATE INTERVIEW
 // ==========================================
@@ -115,12 +111,7 @@ const updateInterview = async (req, res, next) => {
     const interviewId = req.params.id;
     const userId = req.user.userId;
 
-    const {
-      role,
-      difficulty,
-      jobDescription,
-      resumeText,
-    } = req.body;
+    const { role, difficulty, jobDescription, resumeText } = req.body;
 
     const interview = await Interview.findOne({
       _id: interviewId,
@@ -159,7 +150,6 @@ const updateInterview = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // ==========================================
 // GENERATE NEXT QUESTION
@@ -201,9 +191,7 @@ const getNextQuestion = async (req, res, next) => {
     }
 
     const lastQuestion =
-      interview.conversation[
-        interview.conversation.length - 1
-      ];
+      interview.conversation[interview.conversation.length - 1];
 
     if (lastQuestion && !lastQuestion.answer) {
       return res.status(400).json({
@@ -215,9 +203,11 @@ const getNextQuestion = async (req, res, next) => {
     const generatedQuestion = await generateQuestion(interview);
 
     interview.conversation.push({
-      question: generatedQuestion.question,
+      question: nextQuestion.question,
+      category: nextQuestion.category,
+      topic: nextQuestion.topic,
+      reason: nextQuestion.reason,
     });
-
     interview.currentQuestion += 1;
 
     await interview.save();
@@ -233,7 +223,6 @@ const getNextQuestion = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // ==========================================
 // SUBMIT ANSWER
@@ -294,8 +283,7 @@ const submitAnswer = async (req, res, next) => {
 
     const conversation = interview.conversation;
 
-    const currentQuestion =
-      conversation[conversation.length - 1];
+    const currentQuestion = conversation[conversation.length - 1];
 
     if (!currentQuestion || currentQuestion.answer) {
       return res.status(400).json({
@@ -303,10 +291,7 @@ const submitAnswer = async (req, res, next) => {
       });
     }
 
-    console.log(
-      "Current Question Number:",
-      interview.currentQuestion
-    );
+    console.log("Current Question Number:", interview.currentQuestion);
 
     // ------------------------------------------
     // Evaluate answer
@@ -340,28 +325,18 @@ const submitAnswer = async (req, res, next) => {
     const maximumQuestions =
       interview.interviewPlan.interviewStrategy.questionRange.maximum;
 
-    console.log(
-      "Minimum Questions Limit:",
-      minimumQuestions
-    );
+    console.log("Minimum Questions Limit:", minimumQuestions);
 
-    console.log(
-      "Maximum Questions Limit:",
-      maximumQuestions
-    );
-
+    console.log("Maximum Questions Limit:", maximumQuestions);
 
     // ==========================================
     // HARD MAXIMUM
     // ==========================================
 
     if (interview.currentQuestion >= maximumQuestions) {
-      console.log(
-        "Maximum question limit reached. Completing interview."
-      );
+      console.log("Maximum question limit reached. Completing interview.");
 
-      const finalReport =
-        await generateFinalReport(interview);
+      const finalReport = await generateFinalReport(interview);
 
       interview.finalReport = finalReport;
       interview.status = "completed";
@@ -369,13 +344,11 @@ const submitAnswer = async (req, res, next) => {
       await interview.save();
 
       return res.status(200).json({
-        message:
-          "Answer evaluated and interview completed successfully",
+        message: "Answer evaluated and interview completed successfully",
         evaluation,
         finalReport,
       });
     }
-
 
     // ==========================================
     // ADAPTIVE ENGINE
@@ -388,16 +361,9 @@ const submitAnswer = async (req, res, next) => {
       evaluation,
     );
 
-    console.log(
-      "Adaptive Decision:",
-      followUp.decision
-    );
+    console.log("Adaptive Decision:", followUp.decision);
 
-    console.log(
-      "Adaptive Topic:",
-      followUp.topic
-    );
-
+    console.log("Adaptive Topic:", followUp.topic);
 
     // ==========================================
     // ADAPTIVE COMPLETION
@@ -407,12 +373,9 @@ const submitAnswer = async (req, res, next) => {
       followUp.decision === "complete" &&
       interview.currentQuestion >= minimumQuestions
     ) {
-      console.log(
-        "Adaptive engine decided to complete interview."
-      );
+      console.log("Adaptive engine decided to complete interview.");
 
-      const finalReport =
-        await generateFinalReport(interview);
+      const finalReport = await generateFinalReport(interview);
 
       interview.finalReport = finalReport;
       interview.status = "completed";
@@ -426,17 +389,16 @@ const submitAnswer = async (req, res, next) => {
       });
     }
 
-
     // ==========================================
     // FOLLOW-UP QUESTION
     // ==========================================
 
-    if (
-      followUp.decision === "follow_up" &&
-      interview.followUpCount < 2
-    ) {
+    if (followUp.decision === "follow_up" && interview.followUpCount < 2) {
       interview.conversation.push({
-        question: followUp.question,
+        question: nextQuestion.question,
+        category: nextQuestion.category,
+        topic: nextQuestion.topic,
+        reason: nextQuestion.reason,
       });
 
       interview.followUpCount += 1;
@@ -456,13 +418,11 @@ const submitAnswer = async (req, res, next) => {
       });
     }
 
-
     // ==========================================
     // NEW TOPIC
     // ==========================================
 
-    const nextQuestion =
-      await generateQuestion(interview);
+    const nextQuestion = await generateQuestion(interview);
 
     interview.conversation.push({
       question: nextQuestion.question,
@@ -478,8 +438,7 @@ const submitAnswer = async (req, res, next) => {
     await interview.save();
 
     return res.status(200).json({
-      message:
-        "Answer evaluated and next question generated successfully",
+      message: "Answer evaluated and next question generated successfully",
       evaluation,
       question: {
         number: interview.currentQuestion,
@@ -490,7 +449,6 @@ const submitAnswer = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // ==========================================
 // COMPLETE INTERVIEW
@@ -524,13 +482,11 @@ const completeInterview = async (req, res, next) => {
 
     if (!timedOut && interview.currentQuestion < minimumQuestions) {
       return res.status(400).json({
-        message:
-          `Minimum ${minimumQuestions} questions are required to complete the interview`,
+        message: `Minimum ${minimumQuestions} questions are required to complete the interview`,
       });
     }
 
-    const finalReport =
-      await generateFinalReport(interview);
+    const finalReport = await generateFinalReport(interview);
 
     interview.finalReport = finalReport;
     interview.status = "completed";
@@ -545,7 +501,6 @@ const completeInterview = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // ==========================================
 // EXPORT CONTROLLERS

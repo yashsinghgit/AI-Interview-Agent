@@ -241,6 +241,11 @@ ${JSON.stringify(interview.conversation, null, 2)}
 CURRENT QUESTION NUMBER:
 ${interview.currentQuestion}
 
+BEHAVIORAL QUESTION ASKED SO FAR:
+$(interview.conversation.filter(
+(item) => item.category === "behavioral"
+).length)
+
 Your task is to generate ONLY the next best interview question.
 
 RULES:
@@ -258,6 +263,32 @@ RULES:
 6. Match the question difficulty to the selected difficulty level.
 
 7. Make the question realistic, specific, and appropriate for the candidate's role.
+
+8. The interview MUST contain at least 2 behavioral questions within the first 15 questions.
+
+9. Behavioral questions MUST genuinely assess workplace behavior and mindset, such as:
+   - teamwork
+   - conflict resolution
+   - handling feedback
+   - working under pressure
+   - prioritization
+   - ownership
+   - accountability
+   - adaptability
+   - decision making
+
+10. If fewer than 2 behavioral questions have been asked and there are not enough remaining questions to naturally include 2 behavioral questions, you MUST generate a behavioral question now.
+
+11. Do NOT turn a behavioral question into a technical question.
+
+12. Behavioral questions should preferably use realistic workplace situations and encourage the candidate to explain their actions and decisions.
+
+13. Once at least 2 behavioral questions have been asked, continue using the adaptive interview strategy normally.
+
+14. The interview may continue beyond Question 15 when further assessment is useful.
+
+15. NEVER choose "complete" before Question 15.
+
 
 Return ONLY valid JSON in exactly this format:
 
