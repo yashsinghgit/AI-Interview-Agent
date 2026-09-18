@@ -1,20 +1,14 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendVerificationEmail = async (email, token) => {
   console.log("EMAIL TOKEN:", token);
 
   const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${token}`;
 
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
+  await resend.emails.send({
+    from: process.env.EMAIL_FROM,
     to: email,
     subject: "Verify your AI Interview Agent account",
     html: `
