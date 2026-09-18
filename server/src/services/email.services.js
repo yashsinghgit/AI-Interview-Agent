@@ -7,7 +7,7 @@ const sendVerificationEmail = async (email, token) => {
 
   const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${token}`;
 
-  await resend.emails.send({
+  const { data, error } = await resend.emails.send({
     from: process.env.EMAIL_FROM,
     to: email,
     subject: "Verify your AI Interview Agent account",
@@ -33,6 +33,17 @@ const sendVerificationEmail = async (email, token) => {
       <p>This verification link will expire in 24 hours.</p>
     `,
   });
+
+  if (error) {
+    console.error("RESEND ERROR:", error);
+    throw new Error(
+      error.message || "Failed to send verification email"
+    );
+  }
+
+  console.log("RESEND EMAIL SENT:", data);
+
+  return data;
 };
 
 module.exports = {
