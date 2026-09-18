@@ -69,6 +69,9 @@ const loginUser = async (req, res, next) => {
     const user = await User.findOne({ email });
 
     if (!user) {
+
+      console.log("LOGIN DEBUG: USER NOT FOUND:", email);
+
       return res.status(401).json({
         message: "Invalid email or password",
       });
@@ -83,6 +86,9 @@ const loginUser = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
+
+      console.log("LOGIN DEBUG: PASSWORD INVALID");
+
       return res.status(401).json({
         message: "Invalid email or password",
       });
