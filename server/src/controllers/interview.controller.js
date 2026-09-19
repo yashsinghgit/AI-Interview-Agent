@@ -203,10 +203,10 @@ const getNextQuestion = async (req, res, next) => {
     const generatedQuestion = await generateQuestion(interview);
 
     interview.conversation.push({
-      question: nextQuestion.question,
-      category: nextQuestion.category,
-      topic: nextQuestion.topic,
-      reason: nextQuestion.reason,
+      question: generatedQuestion.question,
+      category: generatedQuestion.category,
+      topic: generatedQuestion.topic,
+      reason: generatedQuestion.reason,
     });
     interview.currentQuestion += 1;
 
