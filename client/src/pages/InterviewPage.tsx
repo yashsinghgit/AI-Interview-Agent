@@ -33,8 +33,6 @@ function InterviewPage() {
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const [error, setError] = useState("");
   const [timeLeft, setTimeLeft] = useState(30 * 60);
-  
-  
 
   const questionLoaded = useRef(false);
 
@@ -42,108 +40,115 @@ function InterviewPage() {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
-  if (!id || questionLoaded.current) {
-    return;
-  }
-
-  questionLoaded.current = true;
-
-  const loadInterview = async () => {
-    try {
-      setLoadingQuestion(true);
-      setError("");
-
-      // Get the existing interview from the database
-      const response = await api.get(`/interviews/${id}`);
-
-      const interview = response.data.interview;
-
-      // If interview is already completed
-      if (interview.status === "completed") {
-        setError("This interview has already been completed.");
-        return;
-      }
-
-      // Find the latest question
-      const conversation = interview.conversation || [];
-
-      const latestQuestion =
-        conversation[conversation.length - 1];
-
-      // If there is already an unanswered question,
-      // restore it instead of generating a new one.
-      if (latestQuestion && !latestQuestion.answer) {
-        setQuestion({
-          number: interview.currentQuestion,
-          question: latestQuestion.question,
-          category: latestQuestion.category,
-          topic: latestQuestion.topic,
-          reason: latestQuestion.reason,
-          decision: latestQuestion.decision,
-        });
-
-        return;
-      }
-
-      // No unanswered question exists.
-      // Generate a new one.
-      const questionResponse = await api.post(
-        `/interviews/${id}/question`,
-      );
-
-      setQuestion(questionResponse.data.question);
-    } catch (err) {
-      const axiosError = err as AxiosError<{
-        message?: string;
-      }>;
-
-      console.error("Failed to load interview:", err);
-
-      setError(
-        axiosError.response?.data?.message ||
-          "Failed to load interview.",
-      );
-    } finally {
-      setLoadingQuestion(false);
+    if (!id || questionLoaded.current) {
+      return;
     }
-  };
 
-  loadInterview();
-}, [id]);
+    questionLoaded.current = true;
+
+    const loadInterview = async () => {
+      try {
+        setLoadingQuestion(true);
+        setError("");
+
+        // Get the existing interview from the database
+        const response = await api.get(`/interviews/${id}`);
+
+        const interview = response.data.interview;
+
+        // If interview is already completed
+        if (interview.status === "completed") {
+          setError("This interview has already been completed.");
+          return;
+        }
+
+        // Find the latest question
+        const conversation = interview.conversation || [];
+
+        const latestQuestion = conversation[conversation.length - 1];
+
+        // If there is already an unanswered question,
+        // restore it instead of generating a new one.
+        if (latestQuestion && !latestQuestion.answer) {
+          setQuestion({
+            number: interview.currentQuestion,
+            question: latestQuestion.question,
+            category: latestQuestion.category,
+            topic: latestQuestion.topic,
+            reason: latestQuestion.reason,
+            decision: latestQuestion.decision,
+          });
+
+          return;
+        }
+
+        // No unanswered question exists.
+        // Generate a new one.
+        const questionResponse = await api.post(`/interviews/${id}/question`);
+
+        setQuestion(questionResponse.data.question);
+      } catch (err) {
+        const axiosError = err as AxiosError<{
+          message?: string;
+        }>;
+
+        console.error("Failed to load interview:", err);
+
+        setError(
+          axiosError.response?.data?.message || "Failed to load interview.",
+        );
+      } finally {
+        setLoadingQuestion(false);
+      }
+    };
+
+    loadInterview();
+  }, [id]);
+
+  // Interview timer
+  // Timer pauses while AI is evaluating the answer.
 
   // Interview timer
   // Timer pauses while AI is evaluating the answer.
 
   useEffect(() => {
-  if (!id) return;
+    if (!id) return;
 
-  const storageKey = `interviewEndTime_${id}`;
+    const storageKey = `interviewEndTime_${id}`;
 
-  let savedEndTime = localStorage.getItem(storageKey);
+    let savedEndTime = localStorage.getItem(storageKey);
 
-  if (!savedEndTime) {
-    savedEndTime = String(Date.now() + 30 * 60 * 1000);
-    localStorage.setItem(storageKey, savedEndTime);
-  }
+    if (!savedEndTime) {
+      savedEndTime = String(Date.now() + 30 * 60 * 1000);
 
-  const interviewEndTime = Number(savedEndTime);
+      localStorage.setItem(storageKey, savedEndTime);
+    }
 
-  const updateTimer = () => {
-    const remaining = Math.max(
-      0,
-      Math.floor((interviewEndTime - Date.now()) / 1000)
-    );
+    const updateTimer = () => {
+      const currentEndTime = Number(localStorage.getItem(storageKey));
 
-    setTimeLeft(remaining);
-  };
+      const pausedAt = localStorage.getItem(`interviewPausedAt_${id}`);
 
-  updateTimer();
+      // If AI is evaluating, freeze the timer
+      // at the moment the answer was submitted.
+      const currentTime = pausedAt ? Number(pausedAt) : Date.now();
 
-  const timer = setInterval(updateTimer, 1000);
+      const remaining = Math.max(
+        0,
+        Math.floor((currentEndTime - currentTime) / 1000),
+      );
 
-  return () => clearInterval(timer);
-}, [id]);
-  
+      setTimeLeft(remaining);
+    };
+
+    updateTimer();
+
+    const timer = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(timer);
+  }, [id]);
+
+
   // Automatically complete interview when timer reaches zero
   useEffect(() => {
     if (timeLeft !== 0 || !id) {
@@ -201,6 +206,9 @@ function InterviewPage() {
       return;
     }
 
+    // Pause timer before AI evaluation starts
+    localStorage.setItem(`interviewPausedAt_${id}`, String(Date.now()));
+
     try {
       setSubmittingAnswer(true);
       setError("");
@@ -226,6 +234,7 @@ function InterviewPage() {
       // Store the next question without displaying it yet
       if (response.data.question) {
         setPendingQuestion(response.data.question);
+
         setAnswer("");
       }
     } catch (err) {
@@ -237,6 +246,27 @@ function InterviewPage() {
 
       alert(axiosError.response?.data?.message || "Failed to submit answer.");
     } finally {
+      // Calculate how long AI evaluation took
+      const pausedAt = localStorage.getItem(`interviewPausedAt_${id}`);
+
+      if (pausedAt) {
+        const elapsed = Date.now() - Number(pausedAt);
+
+        const endTimeKey = `interviewEndTime_${id}`;
+
+        const savedEndTime = localStorage.getItem(endTimeKey);
+
+        if (savedEndTime) {
+          localStorage.setItem(
+            endTimeKey,
+            String(Number(savedEndTime) + elapsed),
+          );
+        }
+
+        // Remove pause marker
+        localStorage.removeItem(`interviewPausedAt_${id}`);
+      }
+
       setSubmittingAnswer(false);
     }
   };
@@ -365,7 +395,7 @@ function InterviewPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-10" md:px-8 md:py-12>
+      <main className="max-w-5xl mx-auto px-6 py-10 md:px-8 md:py-12">
         {/* Progress */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
