@@ -354,15 +354,27 @@ const submitAnswer = async (req, res, next) => {
     // ADAPTIVE ENGINE
     // ==========================================
 
-    const followUp = await generateFollowUp(
-      interview,
-      currentQuestion.question,
-      answer,
-      evaluation,
-    );
+    let followUp;
+
+    try {
+      followUp = await generateFollowUp(
+        interview,
+        currentQuestion.question,
+        answer,
+        evaluation,
+      );
+    } catch (error) {
+      console.error(
+        "Follow-up generation failed. Falling back to a new question:",
+        error,
+      );
+
+      followUp = {
+        decision: "new_topic",
+      };
+    }
 
     console.log("Adaptive Decision:", followUp.decision);
-
     console.log("Adaptive Topic:", followUp.topic);
 
     // ==========================================
@@ -395,10 +407,10 @@ const submitAnswer = async (req, res, next) => {
 
     if (followUp.decision === "follow_up" && interview.followUpCount < 2) {
       interview.conversation.push({
-        question: nextQuestion.question,
-        category: nextQuestion.category,
-        topic: nextQuestion.topic,
-        reason: nextQuestion.reason,
+        question: followUp.question,
+        category: followUp.category,
+        topic: followUp.topic,
+        reason: followUp.reason,
       });
 
       interview.followUpCount += 1;
@@ -426,6 +438,9 @@ const submitAnswer = async (req, res, next) => {
 
     interview.conversation.push({
       question: nextQuestion.question,
+      category: nextQuestion.category,
+      topic: nextQuestion.topic,
+      reason: nextQuestion.reason,
     });
 
     interview.currentQuestion += 1;
