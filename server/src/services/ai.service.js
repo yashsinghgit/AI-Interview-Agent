@@ -10,10 +10,7 @@ const { followUpSchema } = require("../validators/followUp.validators");
 
 const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 
-console.log(
-  "Gemini API key configured:",
-  Boolean(geminiApiKey)
-);
+console.log("Gemini API key configured:", Boolean(geminiApiKey));
 
 const ai = new GoogleGenAI({
   apiKey: geminiApiKey,
@@ -296,6 +293,15 @@ RULES:
 
 15. NEVER choose "complete" before Question 15.
 
+16. The category field MUST be exactly one of:
+"technical"
+"resumeBased"
+"projectBased"
+"problemSolving"
+"behavioral"
+
+Do not use hyphens or spaces in category values.
+
 
 Return ONLY valid JSON in exactly this format:
 
@@ -312,16 +318,21 @@ Return ONLY valid JSON in exactly this format:
     contents: prompt,
   });
 
-  const text = response.text;
-
-  const cleanedText = text
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
-
   const question = JSON.parse(cleanedText);
 
   console.log("Gemini generated question:", question);
+
+  const categoryMap = {
+    technical: "technical",
+    "resume-based": "resumeBased",
+    "project-based": "projectBased",
+    "problem-solving": "problemSolving",
+    behavioral: "behavioral",
+  };
+
+  if (categoryMap[question.category]) {
+    question.category = categoryMap[question.category];
+  }
 
   questionSchema.parse(question);
 
