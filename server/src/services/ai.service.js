@@ -313,37 +313,36 @@ Return ONLY valid JSON in exactly this format:
 }
 `;
 
-const response = await ai.models.generateContent({
-  model: "gemini-3.5-flash-lite",
-  contents: prompt,
-});
+  const response = await ai.models.generateContent({
+    model: "gemini-3.5-flash-lite",
+    contents: prompt,
+  });
 
-const text = response.text;
+  const text = response.text;
 
-const cleanedText = text
-  .replace(/```json/g, "")
-  .replace(/```/g, "")
-  .trim();
+  const cleanedText = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
 
-const question = JSON.parse(cleanedText);
+  const question = JSON.parse(cleanedText);
 
-console.log("Gemini generated question:", question);
+  console.log("Gemini generated question:", question);
 
-const categoryMap = {
-  "resume-based": "resumeBased",
-  "project-based": "projectBased",
-  "problem-solving": "problemSolving",
+  const categoryMap = {
+    "resume-based": "resumeBased",
+    "project-based": "projectBased",
+    "problem-solving": "problemSolving",
+  };
+
+  if (categoryMap[question.category]) {
+    question.category = categoryMap[question.category];
+  }
+
+  questionSchema.parse(question);
+
+  return question;
 };
-
-if (categoryMap[question.category]) {
-  question.category = categoryMap[question.category];
-}
-
-questionSchema.parse(question);
-
-return question;
-
-}
 
 async function evaluateAnswer(interview, question, answer) {
   const prompt = `
@@ -433,11 +432,13 @@ const generateFollowUp = async (interview, question, answer, evaluation) => {
   const prompt = `
 You are an expert technical interviewer conducting an adaptive interview.
 
-Your job is to decide whether the candidate should receive:
-1. a follow-up question that continues probing the CURRENT topic, or
-2. a new question that moves to a DIFFERENT important topic.
+Your job is to decide what the candidate should receive next:
 
-You must evaluate the candidate's latest answer using the interview context, current question, answer, and evaluation.
+1. "follow_up" - continue probing the CURRENT topic
+2. "new_topic" - move to a DIFFERENT important topic
+3. "complete" - end the interview when enough evidence has been collected
+
+You must evaluate the candidate's latest answer using the complete interview context, current question, answer, evaluation, previous conversation, and interview plan.
 
 INTERVIEW CONTEXT:
 Role: ${interview.role}
@@ -464,58 +465,315 @@ ${JSON.stringify(evaluation, null, 2)}
 PREVIOUS CONVERSATION:
 ${JSON.stringify(interview.conversation, null, 2)}
 
-DECISION RULES:
 
-You have THREE possible decisions:
+==================================================
+ADAPTIVE INTERVIEW RULES
+==================================================
 
-1. "follow_up"
-2. "new_topic"
-3. "complete"
+Your goal is NOT simply to generate another question.
 
-Choose "follow_up" ONLY when:
+Your goal is to intelligently determine what information about the candidate is still missing.
+
+Every new question should help assess an important skill, topic, or competency from the interview plan.
+
+Avoid asking repetitive questions when sufficient evidence has already been collected.
+
+
+==================================================
+DECISION 1: FOLLOW_UP
+==================================================
+
+Choose "follow_up" ONLY when continuing the CURRENT topic provides meaningful additional information.
+
+Choose "follow_up" when:
+
 - The candidate's answer is substantially incomplete.
 - There is a significant technical misunderstanding.
 - There is a significant weakness that is important for evaluating the candidate.
-- The candidate made a questionable claim that needs verification.
-- An important part of the question was not addressed.
-- Further investigation of the CURRENT topic is genuinely useful for judging the candidate.
+- The candidate made a questionable technical claim that needs verification.
+- An important part of the current question was not addressed.
+- The candidate's answer creates a useful opportunity to probe deeper into the SAME topic.
+- Further investigation of the current topic would meaningfully improve the assessment.
+
+Do NOT choose "follow_up" merely because the answer could contain more detail.
+
+Do NOT keep asking follow-up questions indefinitely.
+
+Once a topic has been sufficiently explored, move to a new topic.
+
+IMPORTANT:
+
+- A follow-up question should normally remain in the SAME category as the current question.
+- A behavioral question should generally NOT generate another behavioral follow-up.
+- Do not repeatedly probe the same topic.
+
+
+==================================================
+DECISION 2: NEW_TOPIC
+==================================================
 
 Choose "new_topic" when:
+
 - The candidate demonstrated sufficient understanding of the current topic.
 - The answer was strong, comprehensive, technically accurate, and relevant.
 - Remaining omissions are minor or optional.
-- Further questioning would only test increasingly obscure details.
 - The current topic has already been explored sufficiently.
-- The candidate has demonstrated enough knowledge to move to another important area.
-- The candidate performed poorly on the current topic and further probing would not provide useful additional information.
+- Further questioning would only test increasingly obscure details.
+- The candidate performed poorly and additional probing would not provide useful information.
 - Another important topic from the interview plan should now be assessed.
+- The interview needs better coverage of important skills or categories.
+
+
+==================================================
+CATEGORY BALANCE
+==================================================
+
+The interview should primarily evaluate technical and role-relevant abilities.
+
+The interview has five possible categories:
+
+1. "technical"
+2. "resumeBased"
+3. "projectBased"
+4. "problemSolving"
+5. "behavioral"
+
+Behavioral questions are important, but they must remain LIMITED.
+
+TARGET:
+
+- Behavioral questions: approximately 2–3 questions TOTAL during the interview.
+- Technical questions: several questions.
+- Project-based questions: several questions when relevant to the candidate's projects.
+- Problem-solving questions: several questions.
+- Resume-based questions: use when relevant to the candidate's background.
+
+IMPORTANT BEHAVIORAL LIMIT:
+
+Count the categories of the questions already asked in PREVIOUS CONVERSATION.
+
+If 3 or more behavioral questions have already been asked:
+
+- NEVER generate another behavioral question.
+- The next question MUST use another relevant category.
+- Prefer technical, projectBased, problemSolving, or resumeBased.
+
+If fewer than 3 behavioral questions have been asked:
+
+- Behavioral questions may still be used when they provide useful assessment.
+- Do NOT choose behavioral merely because it is an easy question to generate.
+- Do NOT use behavioral repeatedly.
+- Prefer uncovered technical or role-specific topics when appropriate.
+
+If the CURRENT QUESTION is behavioral and it has already been sufficiently answered:
+
+- Prefer moving to technical, projectBased, problemSolving, or resumeBased.
+- Do NOT generate another behavioral question simply because the candidate's answer was weak.
+- Only generate another behavioral question if there is a specific important behavioral competency that remains genuinely necessary to assess AND fewer than 3 behavioral questions have been asked.
+
+
+==================================================
+CATEGORY SELECTION PRIORITY
+==================================================
+
+When choosing "new_topic", prioritize categories and topics that have not been sufficiently assessed.
+
+Use this general priority:
+
+1. Important uncovered technical topics
+2. Important uncovered projectBased topics
+3. Important uncovered problemSolving topics
+4. Relevant uncovered resumeBased topics
+5. Behavioral topics, only when fewer than 3 behavioral questions have been asked and behavioral assessment is still needed
+
+This is a priority, not a rigid sequence.
+
+Always consider the actual interview plan and job description.
+
+For example, if the role is a Backend Developer and the interview plan contains:
+
+- Node.js
+- Express.js
+- REST APIs
+- MongoDB
+- Authentication
+- Error handling
+- Debugging
+- Backend architecture
+- DSA
+- Projects
+- Behavioral
+
+and the candidate has already answered several behavioral questions, prioritize uncovered backend topics instead of generating another behavioral question.
+
+
+==================================================
+TOPIC COVERAGE
+==================================================
+
+Before selecting the next question, examine PREVIOUS CONVERSATION.
+
+Identify:
+
+- Topics already assessed
+- Topics assessed multiple times
+- Topics not yet assessed
+- Categories already overused
+- Important topics from the interview plan that remain uncovered
+
+Avoid repeating a topic unless deeper investigation is genuinely useful.
+
+The next question should ideally cover an important topic that has not received enough evidence.
+
+Do not ask the same type of question repeatedly just because the candidate answered the previous question well.
+
+
+==================================================
+CATEGORY COUNTING
+==================================================
+
+Before making your decision, mentally count the categories in PREVIOUS CONVERSATION:
+
+technical = number of technical questions
+resumeBased = number of resumeBased questions
+projectBased = number of projectBased questions
+problemSolving = number of problemSolving questions
+behavioral = number of behavioral questions
+
+Also identify the important topics that have already been assessed.
+
+Use these counts when deciding the next question.
+
+CRITICAL RULE:
+
+If behavioral >= 3:
+
+You MUST NOT generate a behavioral question.
+
+Choose another relevant category instead.
+
+
+==================================================
+DECISION 3: COMPLETE
+==================================================
 
 Choose "complete" ONLY when:
+
 - The current question number is AT LEAST 15.
-- The candidate has demonstrated enough overall knowledge and competence.
-- Additional questions are unlikely to provide meaningful additional evidence.
-- The interview has covered enough important areas to make a reliable assessment.
-- Ending the interview now is better than continuing to another topic.
+- Enough meaningful evidence has been collected about the candidate.
+- Important areas from the interview plan have been sufficiently covered.
+- Additional questions are unlikely to provide meaningful new information.
+- The interview has assessed enough technical, project, problem-solving, and relevant behavioral abilities.
+- Ending the interview is better than continuing.
 
-IMPORTANT:
-- NEVER choose "complete" before Question 15.
-- The interview may continue beyond Question 15 if more assessment is useful.
-- Question 25 is the absolute maximum. The backend will force completion at Question 25.
-- A strong answer does NOT automatically mean "complete".
-- At Question 15 or later, decide whether enough evidence has been collected to finish.
-- If more assessment is useful, choose "new_topic" or "follow_up" instead.
+NEVER choose "complete" before Question 15.
 
-OUTPUT:
+The interview may continue beyond Question 15 if additional assessment is useful.
+
+Question 25 is the absolute maximum.
+
+The backend will force completion at Question 25.
+
+A strong answer does NOT automatically mean the interview should end.
+
+At Question 15 or later, determine whether enough evidence has been collected across the important categories and topics.
+
+If important areas are still missing:
+
+- choose "new_topic"
+- or choose "follow_up" if the current topic genuinely requires deeper assessment.
+
+If enough evidence has been collected:
+
+- choose "complete".
+
+
+==================================================
+IMPORTANT ANTI-REPETITION RULES
+==================================================
+
+Do NOT:
+
+- Ask multiple behavioral questions consecutively when other important categories remain.
+- Continue asking questions about a topic that has already been sufficiently assessed.
+- Ask a follow-up simply because the candidate's answer was not perfect.
+- Generate another question from an already overrepresented category when an important uncovered category exists.
+- End the interview early simply because the candidate gave one strong answer.
+- Treat every weak answer as a reason for a follow-up.
+- Repeat the same topic using slightly different wording.
+
+
+==================================================
+QUESTION QUALITY
+==================================================
+
+Every generated question must:
+
+- Be relevant to the candidate's role.
+- Be relevant to the interview plan.
+- Be appropriate for the candidate's stated experience level.
+- Be based on the job description when relevant.
+- Test meaningful knowledge, reasoning, experience, or problem-solving ability.
+- Avoid unnecessary repetition.
+- Have a clear assessment purpose.
+
+For projectBased questions, use the candidate's actual projects when available.
+
+For resumeBased questions, use information from the candidate's resume.
+
+For technical questions, prioritize technologies and skills relevant to the role.
+
+For problemSolving questions, test reasoning, debugging, design, algorithms, or practical engineering decisions.
+
+For behavioral questions, assess genuinely useful professional competencies such as ownership, communication, prioritization, teamwork, adaptability, or handling challenges.
+
+
+==================================================
+CURRENT QUESTION CATEGORY
+==================================================
+
+When deciding whether to follow up, identify the category of the CURRENT QUESTION.
+
+If the current question is:
+
+- technical → follow up technically if needed
+- projectBased → follow up on the project if needed
+- problemSolving → follow up on the problem if needed
+- resumeBased → follow up on the resume experience if needed
+- behavioral → normally move to another category after sufficient assessment
+
+
+==================================================
+OUTPUT REQUIREMENTS
+==================================================
+
 Return ONLY valid JSON.
-Do not include markdown.
-Do not include code fences.
-Do not include explanations outside the JSON.
+
+Do NOT include:
+
+- Markdown
+- Code fences
+- Explanations outside JSON
+- Additional fields
 
 If decision is "complete":
-- Set "question" to an empty string.
-- Set "category" to the category of the last assessed question.
-- Set "topic" to the current topic.
-- Explain briefly in "reason" why the interview should end.
+
+- "question" MUST be an empty string.
+- "category" should be the category of the last assessed question.
+- "topic" should be the current topic.
+- "reason" should briefly explain why enough evidence has been collected.
+
+If decision is "follow_up":
+
+- Generate a question that continues the CURRENT topic.
+- Keep the appropriate category.
+- Explain briefly why deeper investigation is useful.
+
+If decision is "new_topic":
+
+- Generate a question about a DIFFERENT important topic.
+- Prefer an uncovered category/topic.
+- Do not generate another behavioral question if behavioral >= 3.
 
 Return exactly this structure:
 
@@ -526,7 +784,6 @@ Return exactly this structure:
   "topic": "Specific topic being assessed",
   "reason": "Brief explanation for why this decision and question were chosen"
 }
-  
 `;
 
   try {
