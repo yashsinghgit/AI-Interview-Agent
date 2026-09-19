@@ -313,31 +313,35 @@ Return ONLY valid JSON in exactly this format:
 }
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash-lite",
-    contents: prompt,
-  });
+const response = await ai.models.generateContent({
+  model: "gemini-3.5-flash-lite",
+  contents: prompt,
+});
 
-  const question = JSON.parse(cleanedText);
+const text = response.text;
 
-  console.log("Gemini generated question:", question);
+const cleanedText = text
+  .replace(/```json/g, "")
+  .replace(/```/g, "")
+  .trim();
 
-  const categoryMap = {
-    technical: "technical",
-    "resume-based": "resumeBased",
-    "project-based": "projectBased",
-    "problem-solving": "problemSolving",
-    behavioral: "behavioral",
-  };
+const question = JSON.parse(cleanedText);
 
-  if (categoryMap[question.category]) {
-    question.category = categoryMap[question.category];
-  }
+console.log("Gemini generated question:", question);
 
-  questionSchema.parse(question);
-
-  return question;
+const categoryMap = {
+  "resume-based": "resumeBased",
+  "project-based": "projectBased",
+  "problem-solving": "problemSolving",
 };
+
+if (categoryMap[question.category]) {
+  question.category = categoryMap[question.category];
+}
+
+questionSchema.parse(question);
+
+return question;
 
 const evaluateAnswer = async (interview, question, answer) => {
   const prompt = `
