@@ -8,8 +8,15 @@ const { answerEvaluationSchema } = require("../validators/answer.validator");
 const { finalReportSchema } = require("../validators/finalReport.validator");
 const { followUpSchema } = require("../validators/followUp.validators");
 
+const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+
+console.log(
+  "Gemini API key configured:",
+  Boolean(geminiApiKey)
+);
+
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+  apiKey: geminiApiKey,
 });
 
 const testGeminiConnection = async () => {
