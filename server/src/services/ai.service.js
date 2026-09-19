@@ -343,7 +343,9 @@ questionSchema.parse(question);
 
 return question;
 
-const evaluateAnswer = async (interview, question, answer) => {
+}
+
+async function evaluateAnswer(interview, question, answer) {
   const prompt = `
   You are an expert technical interviewer evaluating a candidate's answer.
 
@@ -425,7 +427,7 @@ Use exactly this structure:
     console.error("Answer Evaluation Error : ", error);
     throw error;
   }
-};
+}
 
 const generateFollowUp = async (interview, question, answer, evaluation) => {
   const prompt = `
