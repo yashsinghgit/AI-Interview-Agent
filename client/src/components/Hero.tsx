@@ -13,10 +13,6 @@ function Hero() {
             
             {/* Left Content */}
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-sm font-semibold mb-6">
-                <Sparkles size={16} />
-                AI-Powered Interview Practice
-              </div>
 
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight text-gray-900">
                 Ace Your Next

@@ -10,7 +10,7 @@ const { followUpSchema } = require("../validators/followUp.validators");
 
 const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 
-console.log("Gemini API key configured:", Boolean(geminiApiKey));
+
 
 const ai = new GoogleGenAI({
   apiKey: geminiApiKey,
