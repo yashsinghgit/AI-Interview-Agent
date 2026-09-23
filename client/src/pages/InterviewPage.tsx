@@ -516,7 +516,7 @@ function InterviewPage() {
 
               <div className="text-5xl font-bold text-blue-600">
                 {evaluation.score}
-                <span className="text-2xl text-gray-400">/10</span>
+                <span className="text-2xl text-gray-400">/100</span>
               </div>
             </div>
 
