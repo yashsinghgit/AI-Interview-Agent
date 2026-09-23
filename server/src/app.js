@@ -9,12 +9,27 @@ const errorMiddleware = require("./middleware/error.middleware");
 
 const app = express();
 
-const allowedOrigins = ['https://ai-interview-agent-omega-eight.vercel.app','ai-interview-agent-omega-eight.vercel.app', 'www.ai-interview-agent-omega-eight.vercel.app','http://localhost:5173']
+const allowedOrigins = new Set([
+	"https://ai-interview-agent-omega-eight.vercel.app",
+	"https://www.ai-interview-agent-omega-eight.vercel.app",
+	"http://localhost:5173",
+]);
+
+const corsOptions = {
+	origin: (origin, callback) => {
+		if (!origin || allowedOrigins.has(origin)) {
+			return callback(null, true);
+		}
+
+		return callback(new Error("Origin is not allowed by CORS"));
+	},
+	credentials: true,
+	methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+	allowedHeaders: ["Content-Type", "Authorization"],
+};
 
 // CORS
-app.use(
- cors({ origin: allowedOrigins })
-);
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
