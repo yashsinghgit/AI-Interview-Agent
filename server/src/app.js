@@ -9,11 +9,11 @@ const errorMiddleware = require("./middleware/error.middleware");
 
 const app = express();
 
+const allowedOrigins = ['https://ai-interview-agent-omega-eight.vercel.app','ai-interview-agent-omega-eight.vercel.app', 'www.ai-interview-agent-omega-eight.vercel.app','http://localhost:5173']
+
 // CORS
 app.use(
-  cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-  })
+ cors({ origin: allowedOrigins })
 );
 
 app.use(express.json());
