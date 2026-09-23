@@ -1,13 +1,33 @@
 const mongoose = require('mongoose');
+
+let connectionPromise;
+
 async function connectDB() {
-   try{
- await mongoose.connect("mongodb+srv://yash_db_07:prqicTsrOxuaB0R4@cluster0.wdwtseb.mongodb.net/interviewAI?appName=Cluster0")
-    console.log("Connected to DB")
+   if (mongoose.connection.readyState === 1) {
+      return mongoose.connection;
    }
 
-   catch (error) {
-      console.error('Error connecting to MongoDB:', error);
-      process.exit(1);
+   if (!connectionPromise) {
+      const mongoUri = process.env.MONGODB_URI;
+
+      if (!mongoUri) {
+         throw new Error('MONGODB_URI is not configured');
+      }
+
+      connectionPromise = mongoose.connect(mongoUri, {
+         serverSelectionTimeoutMS: 30000,
+      })
+         .then((connection) => {
+            console.log('Connected to DB');
+            return connection;
+         })
+         .catch((error) => {
+            connectionPromise = undefined;
+            console.error('Error connecting to MongoDB:', error);
+            throw error;
+         });
    }
+
+   return connectionPromise;
 }
 module.exports = connectDB;
