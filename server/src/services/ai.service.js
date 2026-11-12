@@ -209,7 +209,11 @@ Use exactly this structure:
     });
 
     const text = response.text;
-    const plan = JSON.parse(text);
+    const cleanedText = text
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+    const plan = JSON.parse(cleanedText);
 
     const validatePlan = interviewPlanSchema.parse(plan);
 
