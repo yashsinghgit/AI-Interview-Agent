@@ -16,9 +16,32 @@ const ai = new GoogleGenAI({
   apiKey: geminiApiKey,
 });
 
+const callGeminiWithRetry = async (params, retries = 3, delay = 1500) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (err) {
+      const isRetryable =
+        err?.message?.includes("503") ||
+        err?.message?.includes("high demand") ||
+        err?.message?.includes("UNAVAILABLE") ||
+        err?.status === 503;
+
+      if (isRetryable && attempt < retries) {
+        console.warn(
+          `Gemini 503 high demand spike. Retrying attempt ${attempt + 1}/${retries} in ${delay * attempt}ms...`
+        );
+        await new Promise((res) => setTimeout(res, delay * attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+};
+
 const testGeminiConnection = async () => {
   try {
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry({
       model: "gemini-3.5-flash-lite",
       contents: "Say hello from my AI Interview Agent in one sentence.",
     });
@@ -203,7 +226,7 @@ Use exactly this structure:
 }
 `;
 
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry({
       model: "gemini-3.5-flash-lite",
       contents: prompt,
     });
@@ -409,7 +432,7 @@ Use exactly this structure:
  `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry({
       model: "gemini-3.5-flash-lite",
       contents: prompt,
     });
@@ -791,7 +814,7 @@ Return exactly this structure:
 `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry({
       model: "gemini-3.5-flash-lite",
       contents: prompt,
     });
@@ -872,7 +895,7 @@ Use exactly this structure:
 `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callGeminiWithRetry({
       model: "gemini-3.5-flash-lite",
       contents: prompt,
     });
