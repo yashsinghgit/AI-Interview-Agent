@@ -47,6 +47,13 @@ app.use(async (req, res, next) => {
 	}
 });
 
+app.get("/", (req, res) => {
+	res.status(200).json({
+		status: "ok",
+		message: "Welcome to AI interview API",
+	});
+});
+
 app.use("/", authRoutes);
 app.use("/", userRoutes);
 app.use("/", interviewRoutes);
