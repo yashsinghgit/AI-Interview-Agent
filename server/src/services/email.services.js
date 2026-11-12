@@ -1,70 +1,80 @@
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 
-console.log("EMAIL SERVICE: Loading...");
+const getTransporter = () => {
+  const smtpPort = parseInt(process.env.SMTP_PORT, 10) || 465;
+  const smtpSecure =
+    process.env.SMTP_SECURE !== undefined
+      ? process.env.SMTP_SECURE === "true"
+      : smtpPort === 465;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: {
+      user: process.env.SMTP_USER || process.env.EMAIL_USER,
+      pass: process.env.SMTP_PASS || process.env.EMAIL_PASS,
+    },
+  });
+};
 
-console.log("EMAIL SERVICE: Resend initialized");
+const transporter = getTransporter();
+
+const verifyTransporter = async () => {
+  return transporter.verify();
+};
 
 const sendVerificationEmail = async (email, token) => {
-  console.log("EMAIL SERVICE: Function called");
-  console.log("EMAIL TO:", email);
-  console.log("EMAIL TOKEN:", token);
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  const verificationUrl = `${clientUrl}/verify-email/${token}`;
 
-  const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${token}`;
+  const senderUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const fromEmail =
+    process.env.EMAIL_FROM ||
+    (senderUser
+      ? `"AI Interview Agent" <${senderUser}>`
+      : "AI Interview Agent");
 
-  console.log("VERIFICATION URL:", verificationUrl);
-  console.log("EMAIL SERVICE: About to call Resend");
+  const mailOptions = {
+    from: fromEmail,
+    to: email,
+    subject: "Verify your AI Interview Agent account",
+    html: `
+      <h2>Welcome to AI Interview Agent!</h2>
+
+      <p>Thanks for creating an account.</p>
+
+      <p>Please click the button below to verify your email address:</p>
+
+      <a href="${verificationUrl}"
+         style="
+           display:inline-block;
+           padding:12px 20px;
+           background:#2563eb;
+           color:white;
+           text-decoration:none;
+           border-radius:6px;
+         ">
+        Verify Email
+      </a>
+
+      <p>This verification link will expire in 24 hours.</p>
+    `,
+  };
 
   try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM,
-      to: email,
-      subject: "Verify your AI Interview Agent account",
-      html: `
-        <h2>Welcome to AI Interview Agent!</h2>
-
-        <p>Thanks for creating an account.</p>
-
-        <p>Please click the button below to verify your email address:</p>
-
-        <a href="${verificationUrl}"
-           style="
-             display:inline-block;
-             padding:12px 20px;
-             background:#2563eb;
-             color:white;
-             text-decoration:none;
-             border-radius:6px;
-           ">
-          Verify Email
-        </a>
-
-        <p>This verification link will expire in 24 hours.</p>
-      `,
-    });
-
-    console.log("EMAIL SERVICE: Resend call completed");
-    console.log("RESEND DATA:", data);
-    console.log("RESEND ERROR:", error);
-
-    if (error) {
-      throw new Error(
-        error.message || "Failed to send verification email"
-      );
-    }
-
-    console.log("EMAIL SERVICE: Email sent successfully");
-
-    return data;
+    const info = await transporter.sendMail(mailOptions);
+    return info;
   } catch (error) {
-    console.error("EMAIL SERVICE: Resend failed");
-    console.error("RESEND ERROR:", error);
-
+    console.error(
+      "Email service error:",
+      error?.message || "Failed to send email"
+    );
     throw error;
   }
 };
 
 module.exports = {
   sendVerificationEmail,
+  verifyTransporter,
 };

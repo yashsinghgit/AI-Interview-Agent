@@ -29,13 +29,17 @@ function LoginPage() {
       const data = response.data;
 
       if (response.status >= 200 && response.status < 300) {
-        alert("Verification email sent! Please check your inbox.");
+        alert(data.message || "Verification email sent! Please check your inbox.");
       } else {
         alert(data.message);
       }
     } catch (error) {
-      console.error(error);
-      alert("Something went wrong!");
+      console.error("Resend verification error:", error);
+      const axiosError = error as AxiosError<{ message?: string }>;
+      alert(
+        axiosError.response?.data?.message ||
+          "Failed to resend verification email. Please try again later."
+      );
     }
   }
 

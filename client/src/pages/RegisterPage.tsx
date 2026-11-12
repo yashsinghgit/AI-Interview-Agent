@@ -1,7 +1,9 @@
+import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, UserPlus, ArrowLeft } from "lucide-react";
 import api from "../services/api";
+
 
 function RegisterPage() {
   const navigate = useNavigate();
@@ -26,24 +28,68 @@ function RegisterPage() {
       return;
     }
 
-   try {
+    try {
       setLoading(true);
 
-      await api.post("/register", {
+      const response = await api.post("/register", {
         name,
         email,
         password,
       });
 
-      alert(
-        "Registration Successful! Please check your email to verify your account.",
-      );
+      const message =
+        response.data?.message ||
+        "Registration Successful! Please check your email to verify your account.";
+
+      alert(message);
 
       navigate("/login");
     } catch (error) {
-      console.error(error);
+      console.error("Registration error:", error);
 
-      alert("Something went wrong!");
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const backendMessage = error.response?.data?.message;
+
+        switch (status) {
+          case 400:
+            alert(
+              typeof backendMessage === "string"
+                ? backendMessage
+                : "Please check your input details."
+            );
+            break;
+
+          case 401:
+            alert("Your session is invalid. Please try again.");
+            break;
+
+          case 409:
+            alert(
+              typeof backendMessage === "string"
+                ? backendMessage
+                : "An account with this email already exists. Please log in."
+            );
+            break;
+
+          case 429:
+            alert("Too many requests. Please try again later.");
+            break;
+
+          case 500:
+            alert("Something went wrong on our server. Please try again later.");
+            break;
+
+          default:
+            alert(
+              typeof backendMessage === "string"
+                ? backendMessage
+                : "Registration failed. Please try again."
+            );
+        }
+      } else {
+        alert("Unable to connect. Please check your internet connection.");
+      }
     } finally {
       setLoading(false);
     }

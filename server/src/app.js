@@ -16,9 +16,13 @@ const allowedOrigins = new Set([
 	"http://localhost:5173",
 ]);
 
+if (process.env.CLIENT_URL) {
+	allowedOrigins.add(process.env.CLIENT_URL.trim().replace(/\/+$/, ""));
+}
+
 const corsOptions = {
 	origin: (origin, callback) => {
-		if (!origin || allowedOrigins.has(origin)) {
+		if (!origin || allowedOrigins.has(origin) || allowedOrigins.has(origin.replace(/\/+$/, ""))) {
 			return callback(null, true);
 		}
 

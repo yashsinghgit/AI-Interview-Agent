@@ -16,35 +16,84 @@ const registerUser = async (req, res, next) => {
       });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     // 3. Check whether the email already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
 
     if (existingUser) {
-      return res.status(409).json({
-        message: "User with this email already exists",
+      // 3a. If user is already verified, reject registration with 409
+      if (existingUser.isVerified) {
+        return res.status(409).json({
+          message: "An account with this email already exists. Please log in.",
+        });
+      }
+
+      // 3b. Existing unverified account: refresh token and re-attempt email delivery without modifying credentials
+      const verificationToken = crypto.randomBytes(32).toString("hex");
+      existingUser.verificationToken = verificationToken;
+      existingUser.verificationTokenExpires = new Date(
+        Date.now() + 24 * 60 * 60 * 1000
+      );
+      await existingUser.save();
+
+      let emailSent = false;
+      try {
+        await sendVerificationEmail(existingUser.email, verificationToken);
+        emailSent = true;
+      } catch (emailErr) {
+        console.error("Failed to send verification email to existing unverified user:", emailErr.message);
+      }
+
+      return res.status(200).json({
+        message: emailSent
+          ? "An unverified account with this email already exists. A new verification email has been sent."
+          : "An unverified account with this email already exists, but verification email delivery is pending. Please try resending verification later.",
+        emailSent,
+        user: {
+          id: existingUser._id,
+          name: existingUser.name,
+          email: existingUser.email,
+        },
       });
     }
 
-    // 4. Create the user
+    // 4. Create new user
     const verificationToken = crypto.randomBytes(32).toString("hex");
-    console.log("GENERATED TOKEN: ", verificationToken);
     const user = new User({
-      name,
-      email,
+      name: name.trim(),
+      email: normalizedEmail,
       password,
       verificationToken,
-      verificationTokenExpires: Date.now() + 24 * 60 * 60 * 1000, // Token valid for 24 hours
+      verificationTokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
-    // 5. Save the user
-    await user.save();
+    try {
+      await user.save();
+    } catch (saveError) {
+      if (saveError.code === 11000) {
+        return res.status(409).json({
+          message: "An account with this email already exists.",
+        });
+      }
+      throw saveError;
+    }
 
-    // 6. Send verification email
-    await sendVerificationEmail(user.email, verificationToken);
+    // 5. Send verification email (retaining the unverified account if email sending fails)
+    let emailSent = false;
+    try {
+      await sendVerificationEmail(user.email, verificationToken);
+      emailSent = true;
+    } catch (emailErr) {
+      console.error("Failed to send verification email during registration:", emailErr.message);
+    }
 
-    // 7. Send success response
+    // 6. Return response accurately reflecting email delivery status
     return res.status(201).json({
-      message: "Registration successful",
+      message: emailSent
+        ? "Registration successful! Please check your email to verify your account."
+        : "Account created successfully, but verification email delivery is pending. Please click resend verification on the login page.",
+      emailSent,
       user: {
         id: user._id,
         name: user.name,
@@ -52,6 +101,11 @@ const registerUser = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "An account with this email already exists.",
+      });
+    }
     next(error);
   }
 };
@@ -66,12 +120,10 @@ const loginUser = async (req, res, next) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
-
-      console.log("LOGIN DEBUG: USER NOT FOUND:", email);
-
       return res.status(401).json({
         message: "Invalid email or password",
       });
@@ -86,9 +138,6 @@ const loginUser = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-
-      console.log("LOGIN DEBUG: PASSWORD INVALID");
-
       return res.status(401).json({
         message: "Invalid email or password",
       });
@@ -99,7 +148,7 @@ const loginUser = async (req, res, next) => {
     });
 
     return res.status(200).json({
-      message: "Login Sucessful",
+      message: "Login successful",
       user: {
         id: user._id,
         name: user.name,
@@ -116,11 +165,15 @@ const verifyEmail = async (req, res, next) => {
   try {
     const { token } = req.params;
 
-    console.log("VERIFY TOKEN RECEIVED:", token);
+    if (!token) {
+      return res.status(400).json({
+        message: "Verification token is required",
+      });
+    }
 
     const user = await User.findOne({
       verificationToken: token,
-      verificationTokenExpires: { $gt: Date.now() }, // Check if token is not expired
+      verificationTokenExpires: { $gt: new Date() }, // Check if token is not expired
     });
 
     if (!user) {
@@ -153,7 +206,8 @@ const resendVerificationEmail = async (req, res, next) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
 
     if (!user) {
       return res.status(404).json({
@@ -170,14 +224,25 @@ const resendVerificationEmail = async (req, res, next) => {
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
     user.verificationToken = verificationToken;
-    user.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+    user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await user.save();
 
-    await sendVerificationEmail(user.email, verificationToken);
+    let emailSent = false;
+    try {
+      await sendVerificationEmail(user.email, verificationToken);
+      emailSent = true;
+    } catch (emailErr) {
+      console.error("Failed to resend verification email:", emailErr.message);
+      return res.status(502).json({
+        message: "Unable to send verification email at this time. Please try again later.",
+        emailSent: false,
+      });
+    }
 
     return res.status(200).json({
       message: "Verification email sent successfully",
+      emailSent: true,
     });
   } catch (error) {
     next(error);
