@@ -1,13 +1,13 @@
-const { testGeminConnection, 
+const { testGeminiConnection, 
         generateInterviewPlan,
 } = require("../services/ai.service");
 
 const testAI = async (req, res)  => {
     try{
-        const result = await testGeminConnection();
+        const result = await testGeminiConnection();
 
         return res.status(200).json({
-            message : " Gemini connection sucessful",
+            message : " Gemini connection successful",
             result,
         });
     }
