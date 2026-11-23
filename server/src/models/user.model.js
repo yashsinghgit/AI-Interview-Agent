@@ -30,7 +30,22 @@ const userSchema = new mongoose.Schema (
 
         verificationTokenExpires: {
             type: Date,
-        }
+        },
+
+        resetPasswordToken: {
+            type: String,
+            default: null,
+        },
+
+        resetPasswordExpires: {
+            type: Date,
+            default: null,
+        },
+
+        passwordChangedAt: {
+            type: Date,
+            default: null,
+        },
     },
 
     {
@@ -45,6 +60,10 @@ userSchema.pre("save", async function() {
 
     this.password = await bcrypt.hash(this.password, 10);
 });
+
+// Sparse indexes to optimize token verification and password reset lookups
+userSchema.index({ verificationToken: 1 }, { sparse: true });
+userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
 
 const user = mongoose.model("User", userSchema);
 

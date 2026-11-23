@@ -11,6 +11,8 @@ import NotFoundPage from "./pages/NotFoundPage";
 import InterviewSetupPage from "./pages/InterviewSetupPage";
 import ProtectedRoute from "./components/ProtectedRoutes";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 function App() {
   return (
@@ -23,6 +25,10 @@ function App() {
       <Route path="/register" element={<RegisterPage />} />
 
       <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
+
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>

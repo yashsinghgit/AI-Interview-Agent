@@ -74,7 +74,56 @@ const sendVerificationEmail = async (email, token) => {
   }
 };
 
+const sendPasswordResetEmail = async (email, token) => {
+  const clientUrl = (process.env.CLIENT_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
+  const resetUrl = `${clientUrl}/reset-password/${token}`;
+
+  const senderUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const fromEmail =
+    process.env.EMAIL_FROM ||
+    (senderUser
+      ? `"AI Interview Agent" <${senderUser}>`
+      : "AI Interview Agent");
+
+  const mailOptions = {
+    from: fromEmail,
+    to: email,
+    subject: "Reset your AI Interview Agent password",
+    html: `
+      <h2>Password Reset Request</h2>
+      <p>We received a request to reset the password for your AI Interview Agent account.</p>
+      <p>Click the button below to reset your password:</p>
+      <a href="${resetUrl}"
+         style="
+           display:inline-block;
+           padding:12px 20px;
+           background:#2563eb;
+           color:white;
+           text-decoration:none;
+           border-radius:6px;
+           font-weight:bold;
+         ">
+        Reset Password
+      </a>
+      <p>This password reset link will expire in 1 hour.</p>
+      <p>If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    return info;
+  } catch (error) {
+    console.error(
+      "Email service error (Password Reset):",
+      error?.message || "Failed to send password reset email"
+    );
+    throw error;
+  }
+};
+
 module.exports = {
   sendVerificationEmail,
+  sendPasswordResetEmail,
   verifyTransporter,
 };

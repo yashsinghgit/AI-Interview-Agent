@@ -1,12 +1,14 @@
+const crypto = require("crypto");
+const mongoose = require("mongoose");
 const Interview = require("../models/interview.model");
 
+const aiService = require("../services/ai.service");
 const {
   generateInterviewPlan,
-  generateQuestion,
   evaluateAnswer,
   generateFollowUp,
   generateFinalReport,
-} = require("../services/ai.service");
+} = aiService;
 
 // ==========================================
 // CREATE INTERVIEW
@@ -15,14 +17,7 @@ const {
 const createInterview = async (req, res, next) => {
   try {
     const { role, difficulty, jobDescription, resumeText } = req.body;
-
     const userId = req.user.userId;
-
-    if (!role || !difficulty || !jobDescription) {
-      return res.status(400).json({
-        message: "Role, difficulty, and job description are required",
-      });
-    }
 
     const interviewPlan = await generateInterviewPlan({
       role,
@@ -31,6 +26,9 @@ const createInterview = async (req, res, next) => {
       resumeText: resumeText || "",
     });
 
+    const durationMinutes = 30;
+    const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
+
     const interview = await Interview.create({
       user: userId,
       role,
@@ -38,6 +36,8 @@ const createInterview = async (req, res, next) => {
       jobDescription,
       resumeText: resumeText || "",
       interviewPlan,
+      durationMinutes,
+      expiresAt,
     });
 
     return res.status(201).json({
@@ -50,20 +50,86 @@ const createInterview = async (req, res, next) => {
 };
 
 // ==========================================
-// GET ALL MY INTERVIEWS
+// GET ALL MY INTERVIEWS (PAGINATED)
 // ==========================================
 
 const getMyInterviews = async (req, res, next) => {
   try {
     const userId = req.user.userId;
 
-    const interviews = await Interview.find({
-      user: userId,
-    }).sort({ createdAt: -1 });
+    let page = parseInt(req.query.page, 10);
+    let limit = parseInt(req.query.limit, 10);
+
+    if (isNaN(page) || page < 1) {
+      page = 1;
+    }
+
+    const MAX_LIMIT = 50;
+    const DEFAULT_LIMIT = 10;
+    if (isNaN(limit) || limit < 1) {
+      limit = DEFAULT_LIMIT;
+    } else if (limit > MAX_LIMIT) {
+      limit = MAX_LIMIT;
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [interviews, totalInterviews, completedCount, inProgressCount, scoreAgg] =
+      await Promise.all([
+        Interview.find({ user: userId })
+          .sort({ createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .select(
+            "_id role difficulty status currentQuestion createdAt updatedAt finalReport.overallScore"
+          )
+          .lean(),
+        Interview.countDocuments({ user: userId }),
+        Interview.countDocuments({ user: userId, status: "completed" }),
+        Interview.countDocuments({ user: userId, status: "in-progress" }),
+        Interview.aggregate([
+          {
+            $match: {
+              user: new mongoose.Types.ObjectId(userId),
+              status: "completed",
+              "finalReport.overallScore": { $ne: null },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              avgScore: { $avg: "$finalReport.overallScore" },
+            },
+          },
+        ]),
+      ]);
+
+    const totalPages = Math.ceil(totalInterviews / limit) || 1;
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    const averageScore =
+      scoreAgg.length > 0 && scoreAgg[0].avgScore != null
+        ? Math.round(scoreAgg[0].avgScore)
+        : 0;
 
     return res.status(200).json({
       message: "Interviews retrieved successfully",
       interviews,
+      pagination: {
+        total: totalInterviews,
+        page,
+        limit,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+      },
+      stats: {
+        totalInterviews,
+        completedInterviews: completedCount,
+        inProgressInterviews: inProgressCount,
+        averageScore,
+      },
     });
   } catch (error) {
     next(error);
@@ -93,9 +159,22 @@ const getInterviewById = async (req, res, next) => {
       });
     }
 
+    const interviewObj = interview.toObject();
+    const now = new Date();
+    const effectiveExpiresAt =
+      interview.expiresAt ||
+      new Date(interview.createdAt.getTime() + 30 * 60 * 1000);
+    interviewObj.expiresAt = effectiveExpiresAt;
+    interviewObj.remainingSeconds = Math.max(
+      0,
+      Math.floor(
+        (new Date(effectiveExpiresAt).getTime() - now.getTime()) / 1000
+      )
+    );
+
     return res.status(200).json({
       message: "Interview retrieved successfully",
-      interview,
+      interview: interviewObj,
     });
   } catch (error) {
     next(error);
@@ -137,6 +216,11 @@ const updateInterview = async (req, res, next) => {
     }
 
     if (resumeText !== undefined) {
+      if (typeof resumeText === "string" && resumeText.length > 50000) {
+        return res.status(400).json({
+          message: "Resume text exceeds the maximum allowed length of 50000 characters.",
+        });
+      }
       interview.resumeText = resumeText;
     }
 
@@ -152,15 +236,48 @@ const updateInterview = async (req, res, next) => {
 };
 
 // ==========================================
+// DELETE INTERVIEW (Data Retention & Erasure)
+// ==========================================
+
+const deleteInterview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const interview = await Interview.findById(id);
+
+    if (!interview) {
+      return res.status(404).json({
+        message: "Interview not found",
+      });
+    }
+
+    if (interview.user.toString() !== userId) {
+      return res.status(403).json({
+        message: "You are not authorized to delete this interview",
+      });
+    }
+
+    await Interview.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      message: "Interview and associated data deleted successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
 // GENERATE NEXT QUESTION
 // ==========================================
 
 const getNextQuestion = async (req, res, next) => {
+  const { id } = req.params;
+  const userId = req.user.userId;
+  let lockAcquiredToken = null;
+
   try {
-    const { id } = req.params;
-
-    const userId = req.user.userId;
-
     const interview = await Interview.findById(id);
 
     if (!interview) {
@@ -181,10 +298,21 @@ const getNextQuestion = async (req, res, next) => {
       });
     }
 
-    const maximumQuestions =
-      interview.interviewPlan.interviewStrategy.questionRange.maximum;
+    const now = new Date();
+    const effectiveExpiresAt =
+      interview.expiresAt ||
+      new Date(interview.createdAt.getTime() + 30 * 60 * 1000);
+    if (now > new Date(effectiveExpiresAt)) {
+      return res.status(410).json({
+        message: "Interview session has expired. Time limit exceeded.",
+        isExpired: true,
+      });
+    }
 
-    if (interview.currentQuestion >= maximumQuestions) {
+    const maximumQuestions =
+      interview.interviewPlan?.interviewStrategy?.questionRange?.maximum;
+
+    if (maximumQuestions && interview.currentQuestion >= maximumQuestions) {
       return res.status(400).json({
         message: `Maximum limit of ${maximumQuestions} questions reached. Please complete the interview.`,
       });
@@ -200,26 +328,126 @@ const getNextQuestion = async (req, res, next) => {
       });
     }
 
-    const generatedQuestion = await generateQuestion(interview);
+    // ------------------------------------------
+    // Atomic Lock Acquisition (Compare-and-Swap lease)
+    // ------------------------------------------
+    const lockToken = crypto.randomUUID();
+    const LOCK_TTL_MS = 30000;
+    const lockExpiresAt = new Date(now.getTime() + LOCK_TTL_MS);
 
-    interview.conversation.push({
-      question: generatedQuestion.question,
-      category: generatedQuestion.category,
-      topic: generatedQuestion.topic,
-      reason: generatedQuestion.reason,
-    });
-    interview.currentQuestion += 1;
+    const lockedInterview = await Interview.findOneAndUpdate(
+      {
+        _id: id,
+        user: userId,
+        status: "in-progress",
+        currentQuestion: interview.currentQuestion,
+        $or: [
+          { "questionLock.token": null },
+          { "questionLock.expiresAt": null },
+          { "questionLock.expiresAt": { $lt: now } },
+        ],
+      },
+      {
+        $set: {
+          "questionLock.token": lockToken,
+          "questionLock.expiresAt": lockExpiresAt,
+        },
+      },
+      {
+        returnDocument: "after",
+      }
+    );
 
-    await interview.save();
+    if (!lockedInterview) {
+      const currentDoc = await Interview.findById(id);
+      if (
+        currentDoc &&
+        currentDoc.questionLock?.expiresAt &&
+        new Date(currentDoc.questionLock.expiresAt) > now
+      ) {
+        return res.status(409).json({
+          message:
+            "A question is currently being generated for this interview. Please wait.",
+        });
+      }
+
+      return res.status(409).json({
+        message:
+          "Interview state changed or another question request is in progress. Please refresh and try again.",
+      });
+    }
+
+    lockAcquiredToken = lockToken;
+
+    // ------------------------------------------
+    // Generate question outside of DB lock
+    // ------------------------------------------
+    const generatedQuestion = await aiService.generateQuestion(lockedInterview);
+
+    // ------------------------------------------
+    // Atomic Commit (Compare-and-Swap)
+    // Only commit if this request still holds the valid, unexpired lock
+    // ------------------------------------------
+    const commitTime = new Date();
+    const updatedInterview = await Interview.findOneAndUpdate(
+      {
+        _id: id,
+        "questionLock.token": lockToken,
+        "questionLock.expiresAt": { $gt: commitTime },
+      },
+      {
+        $push: {
+          conversation: {
+            question: generatedQuestion.question,
+            category: generatedQuestion.category,
+            topic: generatedQuestion.topic,
+            reason: generatedQuestion.reason,
+          },
+        },
+        $inc: { currentQuestion: 1 },
+        $set: {
+          "questionLock.token": null,
+          "questionLock.expiresAt": null,
+        },
+      },
+      {
+        returnDocument: "after",
+      }
+    );
+
+    if (!updatedInterview) {
+      lockAcquiredToken = null;
+      return res.status(409).json({
+        message:
+          "Question generation timed out or was superseded by another request. Please try again.",
+      });
+    }
+
+    lockAcquiredToken = null;
 
     return res.status(200).json({
       message: "Question generated successfully",
       question: {
-        number: interview.currentQuestion,
+        number: updatedInterview.currentQuestion,
         ...generatedQuestion,
       },
     });
   } catch (error) {
+    if (lockAcquiredToken) {
+      try {
+        await Interview.updateOne(
+          { _id: id, "questionLock.token": lockAcquiredToken },
+          {
+            $set: {
+              "questionLock.token": null,
+              "questionLock.expiresAt": null,
+            },
+          }
+        );
+      } catch (releaseErr) {
+        console.error("Failed to release question generation lock:", releaseErr);
+      }
+    }
     next(error);
   }
 };
@@ -229,26 +457,21 @@ const getNextQuestion = async (req, res, next) => {
 // ==========================================
 
 const submitAnswer = async (req, res, next) => {
+  const { id } = req.params;
+  const { answer } = req.body;
+  const userId = req.user.userId;
+  let lockAcquiredToken = null;
+  let targetQuestionId = null;
+
   try {
-    const { id } = req.params;
-    const { answer } = req.body;
-
-    const userId = req.user.userId;
+    // ------------------------------------------
+    // 1. Answer is validated by Zod
+    // ------------------------------------------
+    const trimmedAnswer = answer.trim();
 
     // ------------------------------------------
-    // Validate answer
+    // 2. Find interview
     // ------------------------------------------
-
-    if (!answer || !answer.trim()) {
-      return res.status(400).json({
-        message: "Answer is required",
-      });
-    }
-
-    // ------------------------------------------
-    // Find interview
-    // ------------------------------------------
-
     const interview = await Interview.findById(id);
 
     if (!interview) {
@@ -260,7 +483,6 @@ const submitAnswer = async (req, res, next) => {
     // ------------------------------------------
     // Check ownership
     // ------------------------------------------
-
     if (interview.user.toString() !== userId) {
       return res.status(403).json({
         message: "You are not authorized to access this interview",
@@ -270,197 +492,351 @@ const submitAnswer = async (req, res, next) => {
     // ------------------------------------------
     // Check interview status
     // ------------------------------------------
-
     if (interview.status === "completed") {
       return res.status(400).json({
         message: "This interview has already been completed",
       });
     }
 
-    // ------------------------------------------
-    // Find current unanswered question
-    // ------------------------------------------
+    const now = new Date();
+    const effectiveExpiresAt =
+      interview.expiresAt ||
+      new Date(interview.createdAt.getTime() + 30 * 60 * 1000);
+    if (now > new Date(effectiveExpiresAt)) {
+      return res.status(410).json({
+        message: "Interview session has expired. Time limit exceeded.",
+        isExpired: true,
+      });
+    }
 
+    // ------------------------------------------
+    // 3. Find current question & check state
+    // ------------------------------------------
     const conversation = interview.conversation;
+    const currentQuestionIndex = conversation.length - 1;
+    const currentQuestion = conversation[currentQuestionIndex];
 
-    const currentQuestion = conversation[conversation.length - 1];
-
-    if (!currentQuestion || currentQuestion.answer) {
+    if (!currentQuestion) {
       return res.status(400).json({
         message: "No unanswered question found",
       });
     }
 
-    console.log("Current Question Number:", interview.currentQuestion);
+    // Repeated submission check: if already answered and evaluated
+    if (
+      currentQuestion.status === "answered" ||
+      (currentQuestion.answer && currentQuestion.answer.trim())
+    ) {
+      return res.status(409).json({
+        message: "This question has already been answered and evaluated.",
+      });
+    }
+
+    // Check if another request is currently evaluating this answer
+    const activeLock =
+      interview.answerLock?.expiresAt &&
+      new Date(interview.answerLock.expiresAt) > now;
+
+    if (currentQuestion.status === "evaluating" || activeLock) {
+      return res.status(409).json({
+        message: "This answer is currently being evaluated. Please wait.",
+      });
+    }
 
     // ------------------------------------------
-    // Evaluate answer
+    // 4. Claim processing atomically (Compare-and-Swap lease)
     // ------------------------------------------
+    const lockToken = crypto.randomUUID();
+    const LOCK_TTL_MS = 60000; // 60s lease for evaluation + next question generation
+    const lockExpiresAt = new Date(now.getTime() + LOCK_TTL_MS);
 
-    const evaluation = await evaluateAnswer(
-      interview,
+    const claimedInterview = await Interview.findOneAndUpdate(
+      {
+        _id: id,
+        user: userId,
+        status: "in-progress",
+        currentQuestion: interview.currentQuestion,
+        "conversation._id": currentQuestion._id,
+        $and: [
+          {
+            $or: [
+              { "conversation.status": "unanswered" },
+              { "conversation.status": null },
+              { "conversation.status": { $exists: false } },
+            ],
+          },
+          {
+            $or: [
+              { "answerLock.token": null },
+              { "answerLock.expiresAt": null },
+              { "answerLock.expiresAt": { $lt: now } },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          "answerLock.token": lockToken,
+          "answerLock.questionId": currentQuestion._id,
+          "answerLock.expiresAt": lockExpiresAt,
+          "conversation.$.status": "evaluating",
+        },
+      },
+      {
+        returnDocument: "after",
+      }
+    );
+
+    if (!claimedInterview) {
+      const refreshedDoc = await Interview.findById(id);
+      const latestQ =
+        refreshedDoc?.conversation?.[refreshedDoc.conversation.length - 1];
+
+      if (
+        latestQ?.status === "answered" ||
+        (latestQ?.answer && latestQ.answer.trim())
+      ) {
+        return res.status(409).json({
+          message: "This question has already been answered and evaluated.",
+        });
+      }
+
+      if (
+        refreshedDoc?.answerLock?.expiresAt &&
+        new Date(refreshedDoc.answerLock.expiresAt) > now
+      ) {
+        return res.status(409).json({
+          message: "This answer is currently being evaluated. Please wait.",
+        });
+      }
+
+      return res.status(409).json({
+        message: "Interview state changed. Please refresh and try again.",
+      });
+    }
+
+    lockAcquiredToken = lockToken;
+    targetQuestionId = currentQuestion._id;
+
+    // ------------------------------------------
+    // 5. Evaluate answer outside DB lock
+    // ------------------------------------------
+    const evaluation = await aiService.evaluateAnswer(
+      claimedInterview,
       currentQuestion.question,
-      answer,
+      trimmedAnswer,
     );
 
     // ------------------------------------------
-    // Save answer + evaluation
+    // 6. Adaptive decision & report generation outside DB lock
     // ------------------------------------------
-
-    currentQuestion.answer = answer;
-    currentQuestion.score = evaluation.score;
-    currentQuestion.evaluation = evaluation.evaluation;
-    currentQuestion.strengths = evaluation.strengths;
-    currentQuestion.weaknesses = evaluation.weaknesses;
-
-    await interview.save();
-
-    // ------------------------------------------
-    // Get question limits
-    // ------------------------------------------
-
     const minimumQuestions =
-      interview.interviewPlan.interviewStrategy.questionRange.minimum;
-
+      claimedInterview.interviewPlan?.interviewStrategy?.questionRange
+        ?.minimum || 15;
     const maximumQuestions =
-      interview.interviewPlan.interviewStrategy.questionRange.maximum;
+      claimedInterview.interviewPlan?.interviewStrategy?.questionRange
+        ?.maximum || 25;
 
-    console.log("Minimum Questions Limit:", minimumQuestions);
+    // Build updated conversation array in memory
+    const updatedConversation = claimedInterview.conversation.map(
+      (item, idx) => {
+        if (idx === currentQuestionIndex) {
+          return {
+            _id: item._id,
+            question: item.question,
+            answer: trimmedAnswer,
+            score: evaluation.score,
+            evaluation: evaluation.evaluation,
+            strengths: evaluation.strengths,
+            weaknesses: evaluation.weaknesses,
+            category: item.category,
+            topic: item.topic,
+            reason: item.reason,
+            status: "answered",
+          };
+        }
+        return item.toObject ? item.toObject() : item;
+      },
+    );
 
-    console.log("Maximum Questions Limit:", maximumQuestions);
+    let newCurrentQuestion = claimedInterview.currentQuestion;
+    let newFollowUpCount = claimedInterview.followUpCount;
+    let newTopic = claimedInterview.currentTopic;
+    let isCompleted = false;
+    let finalReport = null;
+    let nextQuestionData = null;
+    let responseType = "next"; // "completed_max" | "completed_adaptive" | "follow_up" | "new_topic"
 
-    // ==========================================
-    // HARD MAXIMUM
-    // ==========================================
+    // Case A: Hard maximum question limit reached
+    if (claimedInterview.currentQuestion >= maximumQuestions) {
+      finalReport = await aiService.generateFinalReport(claimedInterview);
+      isCompleted = true;
+      responseType = "completed_max";
+    } else {
+      // Case B: Adaptive follow-up engine
+      let followUp;
+      try {
+        followUp = await aiService.generateFollowUp(
+          claimedInterview,
+          currentQuestion.question,
+          trimmedAnswer,
+          evaluation,
+        );
+      } catch (followUpErr) {
+        console.error(
+          "Follow-up generation failed. Falling back to a new question:",
+          followUpErr,
+        );
+        followUp = { decision: "new_topic" };
+      }
 
-    if (interview.currentQuestion >= maximumQuestions) {
-      console.log("Maximum question limit reached. Completing interview.");
+      if (
+        followUp.decision === "complete" &&
+        claimedInterview.currentQuestion >= minimumQuestions
+      ) {
+        finalReport = await aiService.generateFinalReport(claimedInterview);
+        isCompleted = true;
+        responseType = "completed_adaptive";
+      } else if (
+        followUp.decision === "follow_up" &&
+        claimedInterview.followUpCount < 2
+      ) {
+        newFollowUpCount += 1;
+        newCurrentQuestion += 1;
+        newTopic = followUp.topic;
+        nextQuestionData = followUp;
+        responseType = "follow_up";
 
-      const finalReport = await generateFinalReport(interview);
+        updatedConversation.push({
+          question: followUp.question,
+          category: followUp.category,
+          topic: followUp.topic,
+          reason: followUp.reason,
+          status: "unanswered",
+        });
+      } else {
+        // Case C: New topic
+        const nextQ = await aiService.generateQuestion(claimedInterview);
+        newFollowUpCount = 0;
+        newCurrentQuestion += 1;
+        newTopic = nextQ.topic;
+        nextQuestionData = nextQ;
+        responseType = "new_topic";
 
-      interview.finalReport = finalReport;
-      interview.status = "completed";
+        updatedConversation.push({
+          question: nextQ.question,
+          category: nextQ.category,
+          topic: nextQ.topic,
+          reason: nextQ.reason,
+          status: "unanswered",
+        });
+      }
+    }
 
-      await interview.save();
+    // ------------------------------------------
+    // 7. Atomic Commit using Compare-and-Swap
+    // ------------------------------------------
+    const commitTime = new Date();
+    const updateDoc = {
+      conversation: updatedConversation,
+      currentQuestion: newCurrentQuestion,
+      followUpCount: newFollowUpCount,
+      currentTopic: newTopic,
+      "answerLock.token": null,
+      "answerLock.questionId": null,
+      "answerLock.expiresAt": null,
+    };
+
+    if (isCompleted) {
+      updateDoc.finalReport = finalReport;
+      updateDoc.status = "completed";
+    }
+
+    const committedInterview = await Interview.findOneAndUpdate(
+      {
+        _id: id,
+        "answerLock.token": lockToken,
+        "answerLock.expiresAt": { $gt: commitTime },
+      },
+      {
+        $set: updateDoc,
+      },
+      {
+        returnDocument: "after",
+      },
+    );
+
+    if (!committedInterview) {
+      lockAcquiredToken = null;
+      return res.status(409).json({
+        message:
+          "Answer evaluation timed out or was superseded by another request. Please try again.",
+      });
+    }
+
+    lockAcquiredToken = null;
+
+    // ------------------------------------------
+    // 8. Send response
+    // ------------------------------------------
+    if (isCompleted) {
+      const message =
+        responseType === "completed_max"
+          ? "Answer evaluated and interview completed successfully"
+          : "Interview completed successfully";
 
       return res.status(200).json({
-        message: "Answer evaluated and interview completed successfully",
+        message,
         evaluation,
         finalReport,
       });
     }
 
-    // ==========================================
-    // ADAPTIVE ENGINE
-    // ==========================================
-
-    let followUp;
-
-    try {
-      followUp = await generateFollowUp(
-        interview,
-        currentQuestion.question,
-        answer,
-        evaluation,
-      );
-    } catch (error) {
-      console.error(
-        "Follow-up generation failed. Falling back to a new question:",
-        error,
-      );
-
-      followUp = {
-        decision: "new_topic",
-      };
-    }
-
-    console.log("Adaptive Decision:", followUp.decision);
-    console.log("Adaptive Topic:", followUp.topic);
-
-    // ==========================================
-    // ADAPTIVE COMPLETION
-    // ==========================================
-
-    if (
-      followUp.decision === "complete" &&
-      interview.currentQuestion >= minimumQuestions
-    ) {
-      console.log("Adaptive engine decided to complete interview.");
-
-      const finalReport = await generateFinalReport(interview);
-
-      interview.finalReport = finalReport;
-      interview.status = "completed";
-
-      await interview.save();
-
-      return res.status(200).json({
-        message: "Interview completed successfully",
-        evaluation,
-        finalReport,
-      });
-    }
-
-    // ==========================================
-    // FOLLOW-UP QUESTION
-    // ==========================================
-
-    if (followUp.decision === "follow_up" && interview.followUpCount < 2) {
-      interview.conversation.push({
-        question: followUp.question,
-        category: followUp.category,
-        topic: followUp.topic,
-        reason: followUp.reason,
-      });
-
-      interview.followUpCount += 1;
-      interview.currentQuestion += 1;
-      interview.currentTopic = followUp.topic;
-
-      await interview.save();
-
+    if (responseType === "follow_up") {
       return res.status(200).json({
         message:
           "Answer evaluated and adaptive follow-up generated successfully",
         evaluation,
         question: {
-          number: interview.currentQuestion,
-          ...followUp,
+          number: committedInterview.currentQuestion,
+          ...nextQuestionData,
         },
       });
     }
-
-    // ==========================================
-    // NEW TOPIC
-    // ==========================================
-
-    const nextQuestion = await generateQuestion(interview);
-
-    interview.conversation.push({
-      question: nextQuestion.question,
-      category: nextQuestion.category,
-      topic: nextQuestion.topic,
-      reason: nextQuestion.reason,
-    });
-
-    interview.currentQuestion += 1;
-
-    // Reset follow-up count for the new topic
-    interview.followUpCount = 0;
-
-    interview.currentTopic = nextQuestion.topic;
-
-    await interview.save();
 
     return res.status(200).json({
       message: "Answer evaluated and next question generated successfully",
       evaluation,
       question: {
-        number: interview.currentQuestion,
-        ...nextQuestion,
+        number: committedInterview.currentQuestion,
+        ...nextQuestionData,
       },
     });
   } catch (error) {
+    // ------------------------------------------
+    // 9. Safe lock release and state rollback on error
+    // ------------------------------------------
+    if (lockAcquiredToken) {
+      try {
+        await Interview.updateOne(
+          {
+            _id: id,
+            "answerLock.token": lockAcquiredToken,
+            "conversation._id": targetQuestionId,
+          },
+          {
+            $set: {
+              "answerLock.token": null,
+              "answerLock.questionId": null,
+              "answerLock.expiresAt": null,
+              "conversation.$.status": "unanswered",
+            },
+          },
+        );
+      } catch (releaseErr) {
+        console.error("Failed to release answer lock on error:", releaseErr);
+      }
+    }
     next(error);
   }
 };
@@ -492,10 +868,16 @@ const completeInterview = async (req, res, next) => {
       });
     }
 
+    const now = new Date();
+    const effectiveExpiresAt =
+      interview.expiresAt ||
+      new Date(interview.createdAt.getTime() + 30 * 60 * 1000);
+    const isActuallyTimedOut = now >= new Date(effectiveExpiresAt);
+
     const minimumQuestions =
       interview.interviewPlan.interviewStrategy.questionRange.minimum;
 
-    if (!timedOut && interview.currentQuestion < minimumQuestions) {
+    if (!isActuallyTimedOut && interview.currentQuestion < minimumQuestions) {
       return res.status(400).json({
         message: `Minimum ${minimumQuestions} questions are required to complete the interview`,
       });
@@ -526,6 +908,7 @@ module.exports = {
   getMyInterviews,
   getInterviewById,
   updateInterview,
+  deleteInterview,
   completeInterview,
   getNextQuestion,
   submitAnswer,

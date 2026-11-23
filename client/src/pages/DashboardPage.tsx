@@ -4,7 +4,7 @@ import { AxiosError } from "axios";
 
 import Navbar from "../components/Navbar";
 import api from "../services/api";
-import {User} from "lucide-react";
+import { User, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Interview {
   _id: string;
@@ -17,63 +17,137 @@ interface Interview {
   };
 }
 
+interface PaginationMetadata {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+interface DashboardStats {
+  totalInterviews: number;
+  completedInterviews: number;
+  inProgressInterviews: number;
+  averageScore: number;
+}
+
 function DashboardPage() {
   const navigate = useNavigate();
 
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loadingInterviews, setLoadingInterviews] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const limit = 10;
+  const [pagination, setPagination] = useState<PaginationMetadata>({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
+  const [stats, setStats] = useState<DashboardStats>({
+    totalInterviews: 0,
+    completedInterviews: 0,
+    inProgressInterviews: 0,
+    averageScore: 0,
+  });
+
+  const loadInterviews = async (targetPage: number = page) => {
+    try {
+      setLoadingInterviews(true);
+      setError("");
+
+      const response = await api.get("/interviews", {
+        params: { page: targetPage, limit },
+      });
+
+      const data = response.data;
+      setInterviews(data.interviews || []);
+
+      if (data.pagination) {
+        setPagination(data.pagination);
+      } else {
+        const total = (data.interviews || []).length;
+        setPagination({
+          total,
+          page: targetPage,
+          limit,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        });
+      }
+
+      if (data.stats) {
+        setStats(data.stats);
+      } else {
+        const items: Interview[] = data.interviews || [];
+        const completed = items.filter((i) => i.status === "completed").length;
+        const inProgress = items.filter((i) => i.status === "in-progress").length;
+        const scored = items.filter(
+          (i) => i.status === "completed" && i.finalReport
+        );
+        const avg =
+          scored.length > 0
+            ? Math.round(
+                scored.reduce(
+                  (total, interview) =>
+                    total + (interview.finalReport?.overallScore || 0),
+                  0
+                ) / scored.length
+              )
+            : 0;
+        setStats({
+          totalInterviews: items.length,
+          completedInterviews: completed,
+          inProgressInterviews: inProgress,
+          averageScore: avg,
+        });
+      }
+    } catch (err) {
+      const axiosError = err as AxiosError<{ message?: string }>;
+      console.error("Failed to load interviews:", err);
+      setError(
+        axiosError.response?.data?.message || "Failed to load interview history."
+      );
+    } finally {
+      setLoadingInterviews(false);
+    }
+  };
 
   useEffect(() => {
-    const loadInterviews = async () => {
-      try {
-        setLoadingInterviews(true);
-        setError("");
+    loadInterviews(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
-        const response = await api.get("/interviews");
+  const handleDeleteInterview = async (interviewId: string) => {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this interview and all associated data? This action cannot be undone."
+      )
+    ) {
+      return;
+    }
 
-        setInterviews(response.data.interviews || []);
-      } catch (err) {
-        const axiosError = err as AxiosError<{ message?: string }>;
-
-        console.error("Failed to load interviews:", err);
-
-        setError(
-          axiosError.response?.data?.message ||
-            "Failed to load interview history.",
-        );
-      } finally {
-        setLoadingInterviews(false);
+    try {
+      await api.delete(`/interviews/${interviewId}`);
+      if (interviews.length === 1 && page > 1) {
+        setPage((prev) => prev - 1);
+      } else {
+        loadInterviews(page);
       }
-    };
-
-    loadInterviews();
-  }, []);
-
-  const totalInterviews = interviews.length;
-
-  const completedInterviews = interviews.filter(
-    (interview) => interview.status === "completed",
-  ).length;
-
-  const inProgressInterviews = interviews.filter(
-    (interview) => interview.status === "in-progress",
-  ).length;
-
-  const scoredInterviews = interviews.filter(
-    (interview) => interview.status === "completed" && interview.finalReport,
-  );
-
-  const averageScore =
-    scoredInterviews.length > 0
-      ? Math.round(
-          scoredInterviews.reduce(
-            (total, interview) =>
-              total + (interview.finalReport?.overallScore || 0),
-            0,
-          ) / scoredInterviews.length,
-        )
-      : 0;
+    } catch (err) {
+      console.error("Failed to delete interview:", err);
+      const axiosError = err as AxiosError<{ message?: string }>;
+      alert(
+        axiosError.response?.data?.message || "Failed to delete interview."
+      );
+    }
+  };
 
   return (
     <>
@@ -110,7 +184,7 @@ function DashboardPage() {
               </p>
 
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {totalInterviews}
+                {stats.totalInterviews}
               </p>
 
               <p className="text-xs text-gray-400 mt-2">
@@ -123,7 +197,7 @@ function DashboardPage() {
               <p className="text-sm font-medium text-gray-500">Completed</p>
 
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {completedInterviews}
+                {stats.completedInterviews}
               </p>
 
               <p className="text-xs text-gray-400 mt-2">Finished interviews</p>
@@ -134,7 +208,7 @@ function DashboardPage() {
               <p className="text-sm font-medium text-gray-500">In Progress</p>
 
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {inProgressInterviews}
+                {stats.inProgressInterviews}
               </p>
 
               <p className="text-xs text-gray-400 mt-2">
@@ -147,7 +221,7 @@ function DashboardPage() {
               <p className="text-sm font-medium text-gray-500">Average Score</p>
 
               <p className="text-3xl font-bold text-blue-600 mt-2">
-                {averageScore}
+                {stats.averageScore}
                 <span className="text-lg text-gray-400">/100</span>
               </p>
 
@@ -361,9 +435,110 @@ function DashboardPage() {
                           Continue →
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteInterview(interview._id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                        title="Delete Interview & Resume Data"
+                        aria-label="Delete Interview"
+                      >
+                        <Trash2 size={17} />
+                      </button>
                     </div>
                   </div>
                 ))}
+
+                {/* Pagination Controls */}
+                {pagination.totalPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 bg-gray-50 border-t border-gray-200">
+                    <p className="text-sm text-gray-500">
+                      Showing{" "}
+                      <span className="font-semibold text-gray-900">
+                        {(page - 1) * limit + 1}
+                      </span>{" "}
+                      to{" "}
+                      <span className="font-semibold text-gray-900">
+                        {Math.min(page * limit, pagination.total)}
+                      </span>{" "}
+                      of{" "}
+                      <span className="font-semibold text-gray-900">
+                        {pagination.total}
+                      </span>{" "}
+                      interviews
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={!pagination.hasPrevPage || loadingInterviews}
+                        className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        <ChevronLeft size={16} />
+                        Previous
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {Array.from(
+                          { length: pagination.totalPages },
+                          (_, i) => i + 1
+                        ).map((pageNum) => {
+                          if (
+                            pagination.totalPages > 6 &&
+                            Math.abs(pageNum - page) > 1 &&
+                            pageNum !== 1 &&
+                            pageNum !== pagination.totalPages
+                          ) {
+                            if (
+                              pageNum === 2 ||
+                              pageNum === pagination.totalPages - 1
+                            ) {
+                              return (
+                                <span
+                                  key={pageNum}
+                                  className="px-2 text-sm text-gray-400 select-none"
+                                >
+                                  ...
+                                </span>
+                              );
+                            }
+                            return null;
+                          }
+
+                          const isActive = pageNum === page;
+                          return (
+                            <button
+                              key={pageNum}
+                              type="button"
+                              onClick={() => setPage(pageNum)}
+                              disabled={loadingInterviews}
+                              className={`w-8 h-8 rounded-lg text-sm font-medium transition ${
+                                isActive
+                                  ? "bg-blue-600 text-white font-semibold shadow-sm"
+                                  : "text-gray-700 hover:bg-gray-100 bg-white border border-gray-300"
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPage((p) => Math.min(pagination.totalPages, p + 1))
+                        }
+                        disabled={!pagination.hasNextPage || loadingInterviews}
+                        className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        Next
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>

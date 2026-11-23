@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { AxiosError } from "axios";
 import api from "../services/api";
 
 function VerifyEmailPage() {
@@ -25,10 +26,11 @@ function VerifyEmailPage() {
 
         setSuccess(true);
         setMessage(response.data.message);
-      } catch (error: any) {
+      } catch (error: unknown) {
         setSuccess(false);
+        const axiosError = error as AxiosError<{ message?: string }>;
         setMessage(
-          error.response?.data?.message ||
+          axiosError.response?.data?.message ||
             "Unable to verify your email"
         );
       } finally {

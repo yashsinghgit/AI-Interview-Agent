@@ -56,9 +56,21 @@ function InterviewPage() {
 
         const interview = response.data.interview;
 
+        // Synchronize authoritative backend expiration time
+        if (interview.expiresAt) {
+          const endTime = new Date(interview.expiresAt).getTime();
+          localStorage.setItem(`interviewEndTime_${id}`, String(endTime));
+        }
+
         // If interview is already completed
         if (interview.status === "completed") {
           setError("This interview has already been completed.");
+          return;
+        }
+
+        // If interview is already expired on the backend
+        if (interview.remainingSeconds === 0) {
+          setError("This interview session has expired.");
           return;
         }
 

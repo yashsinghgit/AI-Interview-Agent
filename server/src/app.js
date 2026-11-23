@@ -10,6 +10,9 @@ const connectDB = require("./db/db");
 
 const app = express();
 
+// Trust reverse proxies (Vercel, Cloudflare, AWS ELB) to correctly populate req.ip from X-Forwarded-For
+app.set("trust proxy", 1);
+
 const allowedOrigins = new Set([
 	"https://ai-interview-agent-omega-eight.vercel.app",
 	"https://www.ai-interview-agent-omega-eight.vercel.app",
@@ -36,7 +39,8 @@ const corsOptions = {
 // CORS
 app.use(cors(corsOptions));
 
-app.use(express.json());
+// Limit JSON payload to 1MB to prevent memory exhaustion and DoS
+app.use(express.json({ limit: "1mb" }));
 
 app.use(async (req, res, next) => {
 	try {

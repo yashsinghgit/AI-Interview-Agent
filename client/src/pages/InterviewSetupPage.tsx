@@ -1,18 +1,27 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Briefcase, FileText, Sparkles, ArrowRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Briefcase, FileText, Sparkles, ArrowRight, X } from "lucide-react";
+import { AxiosError } from "axios";
 import api from "../services/api";
 
 function InterviewSetupPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [role, setRole] = useState("");
   const [difficulty, setDifficulty] = useState("medium");
   const [jobDescription, setJobDescription] = useState("");
 
-  const [resumeText, setResumeText] = useState(() => {
-    return localStorage.getItem("resumeText") || "";
+  // Retrieve resumeText purely from in-memory navigation state (never localStorage)
+  const [resumeText, setResumeText] = useState<string>(() => {
+    const navState = location.state as { resumeText?: string } | null;
+    return navState?.resumeText || "";
   });
+
+  // Purge any legacy plaintext resume stored in localStorage on mount
+  useEffect(() => {
+    localStorage.removeItem("resumeText");
+  }, []);
 
   const [loading, setLoading] = useState(false);
 
@@ -35,15 +44,13 @@ function InterviewSetupPage() {
       const interviewId = response.data.interview._id;
 
       navigate(`/interview/${interviewId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("CREATE INTERVIEW ERROR:", error);
-
-      console.log("STATUS:", error.response?.status);
-      console.log("DATA:", error.response?.data);
+      const axiosError = error as AxiosError<{ message?: string }>;
 
       alert(
-        error.response?.data?.message ||
-          error.message ||
+        axiosError.response?.data?.message ||
+          axiosError.message ||
           "Failed to create interview.",
       );
     } finally {
@@ -176,22 +183,37 @@ function InterviewSetupPage() {
                   className="flex items-center gap-2 text-sm font-semibold text-gray-700"
                 >
                   <FileText size={17} className="text-blue-600" />
-                  Resume
+                  Resume (Optional)
                 </label>
 
-                {resumeText && (
-                  <span className="text-xs font-semibold text-green-600">
-                    ✓ Resume loaded
+                <div className="flex items-center gap-3">
+                  {resumeText && (
+                    <>
+                      <span className="text-xs font-semibold text-green-600">
+                        ✓ In Memory
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setResumeText("")}
+                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                      >
+                        <X size={12} />
+                        Clear
+                      </button>
+                    </>
+                  )}
+                  <span className="text-xs text-gray-400">
+                    {resumeText.length.toLocaleString()}/50,000
                   </span>
-                )}
+                </div>
               </div>
 
               <textarea
                 id="resumeText"
                 value={resumeText}
+                maxLength={50000}
                 onChange={(e) => {
                   setResumeText(e.target.value);
-                  localStorage.setItem("resumeText", e.target.value);
                 }}
                 placeholder="Paste your resume text here or upload a resume from the Resume page..."
                 rows={7}
@@ -199,8 +221,7 @@ function InterviewSetupPage() {
               />
 
               <p className="text-xs text-gray-400 mt-2">
-                Your resume helps generate questions based on your actual
-                experience.
+                Your resume text stays in memory and is securely submitted with your interview to personalize questions.
               </p>
             </div>
 

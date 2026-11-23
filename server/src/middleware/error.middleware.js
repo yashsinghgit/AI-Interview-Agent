@@ -13,10 +13,14 @@ const errorMiddleware = (err, req, res, next) => {
     });
   }
 
-  if(err.name === "ZodError"){
+  if (err.name === "ZodError") {
     return res.status(400).json({
-        message : "Validation failed", //Zod validation error
-        errors : err.issues,
+      message: "Validation failed",
+      errors: (err.issues || []).map((issue) => ({
+        field: (issue.path || []).join(".") || "payload",
+        message: issue.message,
+        code: issue.code,
+      })),
     });
   }
 
@@ -26,11 +30,14 @@ const errorMiddleware = (err, req, res, next) => {
     });
   }
 
+  const isProduction = process.env.NODE_ENV === "production";
+
   return res.status(500).json({
-    message: err.message || "Internal server error",
+    message: isProduction
+      ? "Internal server error"
+      : err.message || "Internal server error",
   });
 };
-
 
 module.exports = errorMiddleware;
 

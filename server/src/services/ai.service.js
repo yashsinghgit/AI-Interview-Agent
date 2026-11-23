@@ -10,45 +10,313 @@ const { followUpSchema } = require("../validators/followUp.validators");
 
 const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 
-
-
-const ai = new GoogleGenAI({
+let ai = new GoogleGenAI({
   apiKey: geminiApiKey,
 });
 
-const callGeminiWithRetry = async (params, retries = 3, delay = 1500) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await ai.models.generateContent(params);
-    } catch (err) {
-      const isRetryable =
-        err?.message?.includes("503") ||
-        err?.message?.includes("high demand") ||
-        err?.message?.includes("UNAVAILABLE") ||
-        err?.status === 503;
+/**
+ * Structured logger for AI operations
+ */
+const logAiEvent = (level, event, metadata = {}) => {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    event,
+    ...metadata,
+  };
 
-      if (isRetryable && attempt < retries) {
-        console.warn(
-          `Gemini 503 high demand spike. Retrying attempt ${attempt + 1}/${retries} in ${delay * attempt}ms...`
-        );
-        await new Promise((res) => setTimeout(res, delay * attempt));
-        continue;
-      }
-      throw err;
+  if (payload.error && typeof payload.error === "object") {
+    payload.error = {
+      message: payload.error.message,
+      status: payload.error.status || payload.error.statusCode || payload.error.response?.status,
+      code: payload.error.code,
+    };
+  }
+
+  const logString = `[AI Service ${level.toUpperCase()}] ${JSON.stringify(payload)}`;
+  if (level === "error") {
+    console.error(logString);
+  } else if (level === "warn") {
+    console.warn(logString);
+  } else {
+    console.log(logString);
+  }
+};
+
+/**
+ * Classifies an error as transient (retryable) or permanent (non-retryable).
+ * Permanent errors (400, 401, 403, 404, invalid keys) must NOT be retried.
+ */
+const isRetryableError = (error) => {
+  if (!error) return false;
+
+  const status = error.status || error.statusCode || error.response?.status;
+
+  // 1. Permanent HTTP errors (fail immediately)
+  if (status && [400, 401, 403, 404].includes(status)) {
+    return false;
+  }
+
+  const message = (error.message || "").toLowerCase();
+  const code = (error.code || "").toLowerCase();
+
+  // 2. Explicit non-retryable error signatures
+  if (
+    message.includes("api_key_invalid") ||
+    message.includes("api key not valid") ||
+    message.includes("unauthenticated") ||
+    message.includes("permission_denied") ||
+    message.includes("invalid_argument") ||
+    message.includes("bad request") ||
+    code === "invalid_argument" ||
+    code === "permission_denied"
+  ) {
+    return false;
+  }
+
+  // 3. Transient HTTP status codes (429 rate limits, 5xx server errors)
+  if (status === 429 || (status >= 500 && status <= 599)) {
+    return true;
+  }
+
+  // 4. Transient error messages & network conditions
+  if (
+    message.includes("429") ||
+    message.includes("503") ||
+    message.includes("500") ||
+    message.includes("502") ||
+    message.includes("504") ||
+    message.includes("rate limit") ||
+    message.includes("resource_exhausted") ||
+    message.includes("resource exhausted") ||
+    message.includes("unavailable") ||
+    message.includes("high demand") ||
+    message.includes("deadline_exceeded") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("fetch failed") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout") ||
+    code === "econnreset" ||
+    code === "etimedout" ||
+    code === "resource_exhausted" ||
+    code === "unavailable"
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Extracts Retry-After delay in milliseconds if provided by the API response or error message.
+ */
+const extractRetryAfterMs = (error) => {
+  if (!error) return null;
+
+  // Check HTTP response headers
+  let headerVal = null;
+  const headers = error.response?.headers || error.headers;
+  if (headers) {
+    if (typeof headers.get === "function") {
+      headerVal = headers.get("retry-after") || headers.get("Retry-After");
+    } else if (typeof headers === "object") {
+      headerVal = headers["retry-after"] || headers["Retry-After"];
     }
+  }
+
+  if (headerVal) {
+    const numericSeconds = parseFloat(headerVal);
+    if (!isNaN(numericSeconds) && numericSeconds > 0) {
+      return Math.round(numericSeconds * 1000);
+    }
+    const parsedDate = Date.parse(headerVal);
+    if (!isNaN(parsedDate)) {
+      const diffMs = parsedDate - Date.now();
+      if (diffMs > 0) return diffMs;
+    }
+  }
+
+  // Check error message string for "retry after X seconds" or "retry in Xs"
+  const message = error.message || "";
+  const match = message.match(/retry (?:after|in) ([\d.]+)\s*(s|sec|seconds?|ms)?/i);
+  if (match) {
+    const val = parseFloat(match[1]);
+    const unit = (match[2] || "s").toLowerCase();
+    if (!isNaN(val) && val > 0) {
+      if (unit.startsWith("ms")) {
+        return Math.round(val);
+      }
+      return Math.round(val * 1000);
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Calculates exponential backoff with decorrelated jitter.
+ * Base guaranteed backoff prevents immediate re-spikes; jitter prevents the thundering herd.
+ */
+const calculateBackoffWithJitter = (
+  attempt,
+  initialDelayMs = 1000,
+  maxDelayMs = 10000
+) => {
+  const exponential = Math.min(
+    maxDelayMs,
+    initialDelayMs * Math.pow(2, attempt - 1)
+  );
+  const base = Math.floor(exponential * 0.5);
+  const jitter = Math.floor(Math.random() * (exponential * 0.5 + 1));
+  return base + jitter;
+};
+
+/**
+ * Wraps a promise with an absolute timeout to prevent hung network sockets.
+ */
+const withTimeout = (promise, ms, operationName) => {
+  let timerId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      const err = new Error(
+        `Gemini API call timed out after ${ms}ms in ${operationName}`
+      );
+      err.code = "ETIMEDOUT";
+      err.status = 504;
+      reject(err);
+    }, ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timerId);
+  });
+};
+
+/**
+ * Central retry mechanism for all Gemini API calls.
+ * Handles transient retries, exponential backoff with jitter, Retry-After header,
+ * timeout protection, and fast failure for permanent errors.
+ */
+const callGeminiWithRetry = async (params, options = {}) => {
+  const {
+    operationName = "callGemini",
+    maxAttempts = 3,
+    initialDelayMs = 1000,
+    maxDelayMs = 10000,
+    timeoutMs = 30000,
+  } = options;
+
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      logAiEvent("info", "Executing Gemini request", {
+        operationName,
+        attempt,
+        maxAttempts,
+      });
+
+      const response = await withTimeout(
+        ai.models.generateContent(params),
+        timeoutMs,
+        operationName
+      );
+
+      return response;
+    } catch (err) {
+      lastError = err;
+      const isRetryable = isRetryableError(err);
+      const retryAfterMs = extractRetryAfterMs(err);
+
+      // Fast fail: do not retry permanent errors or if attempts exhausted
+      if (!isRetryable || attempt >= maxAttempts) {
+        logAiEvent("error", "Gemini request failed", {
+          operationName,
+          attempt,
+          maxAttempts,
+          isRetryable,
+          reason: !isRetryable
+            ? "Permanent error (non-retryable)"
+            : "Max retry attempts exhausted",
+          error: err,
+        });
+        throw err;
+      }
+
+      // Calculate delay: respect Retry-After header if present, otherwise exponential backoff + jitter
+      let delayMs;
+      if (retryAfterMs !== null && retryAfterMs > 0) {
+        delayMs = Math.min(retryAfterMs, 30000);
+      } else {
+        delayMs = calculateBackoffWithJitter(
+          attempt,
+          initialDelayMs,
+          maxDelayMs
+        );
+      }
+
+      logAiEvent("warn", "Transient Gemini error encountered, scheduling retry", {
+        operationName,
+        attempt,
+        maxAttempts,
+        nextAttempt: attempt + 1,
+        delayMs,
+        retryAfterRespected: Boolean(retryAfterMs),
+        error: err,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
+};
+
+/**
+ * Cleans Markdown wrappers and parses JSON response from Gemini
+ */
+const parseCleanJsonResponse = (text, operationName) => {
+  if (!text || typeof text !== "string") {
+    throw new Error(
+      `Empty or invalid response received from Gemini in ${operationName}`
+    );
+  }
+
+  const cleanedText = text
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleanedText);
+  } catch (err) {
+    logAiEvent("error", "Failed to parse Gemini response as JSON", {
+      operationName,
+      rawPreview: cleanedText.slice(0, 200),
+      parseError: err.message,
+    });
+    throw new Error(
+      `Invalid JSON returned by Gemini in ${operationName}: ${err.message}`
+    );
   }
 };
 
 const testGeminiConnection = async () => {
   try {
-    const response = await callGeminiWithRetry({
-      model: "gemini-3.5-flash-lite",
-      contents: "Say hello from my AI Interview Agent in one sentence.",
-    });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: "Say hello from my AI Interview Agent in one sentence.",
+      },
+      { operationName: "testGeminiConnection" }
+    );
 
     return response.text;
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    logAiEvent("error", "Gemini connection test failed", {
+      operationName: "testGeminiConnection",
+      error,
+    });
     throw error;
   }
 };
@@ -226,29 +494,35 @@ Use exactly this structure:
 }
 `;
 
-    const response = await callGeminiWithRetry({
-      model: "gemini-3.5-flash-lite",
-      contents: prompt,
-    });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: prompt,
+      },
+      { operationName: "generateInterviewPlan" }
+    );
 
-    const text = response.text;
-    const cleanedText = text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
-    const plan = JSON.parse(cleanedText);
-
+    const plan = parseCleanJsonResponse(response.text, "generateInterviewPlan");
     const validatePlan = interviewPlanSchema.parse(plan);
 
     return validatePlan;
   } catch (error) {
-    console.error("Interview Plan Generation Error:", error);
+    logAiEvent("error", "Interview plan generation failed", {
+      operationName: "generateInterviewPlan",
+      error,
+    });
     throw error;
   }
 };
 
 const generateQuestion = async (interview) => {
-  const prompt = `
+  try {
+    const behavioralCount = (
+      (interview && interview.conversation) ||
+      []
+    ).filter((item) => item.category === "behavioral").length;
+
+    const prompt = `
   You are an expert technical interviewer conducting a realistic adaptive interview.
 
 ROLE:
@@ -273,9 +547,7 @@ CURRENT QUESTION NUMBER:
 ${interview.currentQuestion}
 
 BEHAVIORAL QUESTION ASKED SO FAR:
-$(interview.conversation.filter(
-(item) => item.category === "behavioral"
-).length)
+${behavioralCount}
 
 Your task is to generate ONLY the next best interview question.
 
@@ -340,35 +612,41 @@ Return ONLY valid JSON in exactly this format:
 }
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash-lite",
-    contents: prompt,
-  });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: prompt,
+      },
+      { operationName: "generateQuestion" }
+    );
 
-  const text = response.text;
+    const question = parseCleanJsonResponse(
+      response.text,
+      "generateQuestion"
+    );
 
-  const cleanedText = text
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
+    console.log("Gemini generated question:", question);
 
-  const question = JSON.parse(cleanedText);
+    const categoryMap = {
+      "resume-based": "resumeBased",
+      "project-based": "projectBased",
+      "problem-solving": "problemSolving",
+    };
 
-  console.log("Gemini generated question:", question);
+    if (categoryMap[question.category]) {
+      question.category = categoryMap[question.category];
+    }
 
-  const categoryMap = {
-    "resume-based": "resumeBased",
-    "project-based": "projectBased",
-    "problem-solving": "problemSolving",
-  };
+    questionSchema.parse(question);
 
-  if (categoryMap[question.category]) {
-    question.category = categoryMap[question.category];
+    return question;
+  } catch (error) {
+    logAiEvent("error", "Question generation failed", {
+      operationName: "generateQuestion",
+      error,
+    });
+    throw error;
   }
-
-  questionSchema.parse(question);
-
-  return question;
 };
 
 async function evaluateAnswer(interview, question, answer) {
@@ -432,25 +710,27 @@ Use exactly this structure:
  `;
 
   try {
-    const response = await callGeminiWithRetry({
-      model: "gemini-3.5-flash-lite",
-      contents: prompt,
-    });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: prompt,
+      },
+      { operationName: "evaluateAnswer" }
+    );
 
-    const text = response.text;
-
-    const cleanedText = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const evaluation = JSON.parse(cleanedText);
+    const evaluation = parseCleanJsonResponse(
+      response.text,
+      "evaluateAnswer"
+    );
 
     const validateEvaluation = answerEvaluationSchema.parse(evaluation);
 
     return validateEvaluation;
   } catch (error) {
-    console.error("Answer Evaluation Error : ", error);
+    logAiEvent("error", "Answer evaluation failed", {
+      operationName: "evaluateAnswer",
+      error,
+    });
     throw error;
   }
 }
@@ -814,25 +1094,27 @@ Return exactly this structure:
 `;
 
   try {
-    const response = await callGeminiWithRetry({
-      model: "gemini-3.5-flash-lite",
-      contents: prompt,
-    });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: prompt,
+      },
+      { operationName: "generateFollowUp" }
+    );
 
-    const text = response.text;
-
-    const cleanedText = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const followUp = JSON.parse(cleanedText);
+    const followUp = parseCleanJsonResponse(
+      response.text,
+      "generateFollowUp"
+    );
 
     const validatorFollowUp = followUpSchema.parse(followUp);
 
     return validatorFollowUp;
   } catch (error) {
-    console.error("Follow-Up Generation Error:", error);
+    logAiEvent("error", "Follow-up generation failed", {
+      operationName: "generateFollowUp",
+      error,
+    });
     throw error;
   }
 };
@@ -895,26 +1177,36 @@ Use exactly this structure:
 `;
 
   try {
-    const response = await callGeminiWithRetry({
-      model: "gemini-3.5-flash-lite",
-      contents: prompt,
-    });
+    const response = await callGeminiWithRetry(
+      {
+        model: "gemini-3.5-flash-lite",
+        contents: prompt,
+      },
+      { operationName: "generateFinalReport" }
+    );
 
-    const text = response.text;
-
-    const cleanedText = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const report = JSON.parse(cleanedText);
+    const report = parseCleanJsonResponse(
+      response.text,
+      "generateFinalReport"
+    );
     const validateReport = finalReportSchema.parse(report);
 
     return validateReport;
   } catch (error) {
-    console.error("Final Report Generation Error:", error);
+    logAiEvent("error", "Final report generation failed", {
+      operationName: "generateFinalReport",
+      error,
+    });
     throw error;
   }
+};
+
+const setAiClient = (mockClient) => {
+  ai = mockClient;
+};
+
+const getAiClient = () => {
+  return ai;
 };
 
 module.exports = {
@@ -924,4 +1216,13 @@ module.exports = {
   evaluateAnswer,
   generateFollowUp,
   generateFinalReport,
+  callGeminiWithRetry,
+  isRetryableError,
+  extractRetryAfterMs,
+  calculateBackoffWithJitter,
+  withTimeout,
+  parseCleanJsonResponse,
+  logAiEvent,
+  setAiClient,
+  getAiClient,
 };

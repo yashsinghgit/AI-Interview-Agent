@@ -30,7 +30,7 @@ function ProtectedRoutes() {
 
         setIsAuthenticated(true);
         console.log("✅ User is authenticated");
-      } catch (error) {
+      } catch {
         // Token is invalid/expired
         localStorage.removeItem("token");
         setIsAuthenticated(false);

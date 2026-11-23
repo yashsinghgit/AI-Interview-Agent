@@ -31,6 +31,39 @@ const conversationSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+
+    status: {
+      type: String,
+      enum: ["unanswered", "evaluating", "answered"],
+      default: "unanswered",
+    },
+
+    category: {
+      type: String,
+      enum: [
+        "technical",
+        "resumeBased",
+        "projectBased",
+        "problemSolving",
+        "behavioral",
+      ],
+      default: "technical",
+    },
+
+    topic: {
+      type: String,
+      default: "",
+    },
+
+    reason: {
+      type: String,
+      default: "",
+    },
+
+    decision: {
+      type: String,
+      default: "",
+    },
   },
   {
     _id: true,
@@ -195,6 +228,42 @@ const interviewSchema = new mongoose.Schema(
       default: "in-progress",
     },
 
+    durationMinutes: {
+      type: Number,
+      default: 30,
+    },
+
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
+
+    questionLock: {
+      token: {
+        type: String,
+        default: null,
+      },
+      expiresAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
+    answerLock: {
+      token: {
+        type: String,
+        default: null,
+      },
+      questionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
+      expiresAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
     finalReport: {
       overallScore: {
         type: Number,
@@ -221,6 +290,12 @@ const interviewSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+// Compound index for user interview history queries (Equality: user, Sort: createdAt DESC, _id DESC)
+interviewSchema.index({ user: 1, createdAt: -1, _id: -1 });
+
+// Compound index for user status filtering & count aggregation
+interviewSchema.index({ user: 1, status: 1 });
 
 const Interview = mongoose.model("Interview", interviewSchema);
 

@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Upload, FileText, CheckCircle2, ArrowRight } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import mammoth from "mammoth";
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_TEXT_LENGTH = 50000; // 50,000 characters limit
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -17,6 +20,11 @@ function ResumePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Purge any legacy plaintext resume stored in localStorage on load
+  useEffect(() => {
+    localStorage.removeItem("resumeText");
+  }, []);
+
   const extractPdfText = async (file: File) => {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -28,7 +36,7 @@ function ResumePage() {
       const content = await page.getTextContent();
 
       const pageText = content.items
-        .map((item: any) => item.str)
+        .map((item: unknown) => (item as { str?: string })?.str || "")
         .join(" ");
 
       text += pageText + "\n";
@@ -53,6 +61,12 @@ function ResumePage() {
     const selectedFile = event.target.files?.[0];
 
     if (!selectedFile) return;
+
+    if (selectedFile.size > MAX_FILE_SIZE) {
+      setError("File size exceeds the 5MB limit. Please upload a smaller resume.");
+      event.target.value = "";
+      return;
+    }
 
     setFile(selectedFile);
     setResumeText("");
@@ -80,14 +94,17 @@ function ResumePage() {
         );
       }
 
-      setResumeText(extractedText);
+      if (extractedText.length > MAX_TEXT_LENGTH) {
+        extractedText = extractedText.slice(0, MAX_TEXT_LENGTH);
+      }
 
-      localStorage.setItem("resumeText", extractedText);
-    } catch (error: any) {
+      // Keep resume text in application React state only (do not write to localStorage)
+      setResumeText(extractedText);
+    } catch (error: unknown) {
       console.error("RESUME EXTRACTION ERROR:", error);
 
       setError(
-        error.message || "Failed to extract text from the resume.",
+        (error as Error)?.message || "Failed to extract text from the resume.",
       );
     } finally {
       setLoading(false);
@@ -100,7 +117,8 @@ function ResumePage() {
       return;
     }
 
-    navigate("/interview/setup");
+    // Pass resume text safely in React Router memory state instead of localStorage
+    navigate("/interview/setup", { state: { resumeText } });
   };
 
   return (
@@ -233,17 +251,22 @@ function ResumePage() {
                     Extracted Resume Text
                   </label>
 
-                  <span className="text-xs text-gray-400">
-                    Editable
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">
+                      {resumeText.length.toLocaleString()} / 50,000 characters
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      Editable
+                    </span>
+                  </div>
                 </div>
 
                 <textarea
                   id="resume-text"
                   value={resumeText}
+                  maxLength={MAX_TEXT_LENGTH}
                   onChange={(e) => {
                     setResumeText(e.target.value);
-                    localStorage.setItem("resumeText", e.target.value);
                   }}
                   rows={12}
                   className="w-full border border-gray-300 rounded-xl p-4 text-sm text-gray-900 leading-relaxed resize-none outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition"

@@ -2,7 +2,10 @@ const User = require("../models/user.model");
 const bcrypt = require("bcrypt");
 const JWT = require("jsonwebtoken");
 const crypto = require("crypto");
-const { sendVerificationEmail } = require("../services/email.services");
+const {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+} = require("../services/email.services");
 
 const registerUser = async (req, res, next) => {
   try {
@@ -249,9 +252,119 @@ const resendVerificationEmail = async (req, res, next) => {
   }
 };
 
+const requestPasswordReset = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({
+        message: "Email is required",
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    // Prevent account enumeration: return identical response whether user exists or not
+    const genericResponse = {
+      message:
+        "If an account with that email exists, a password reset link has been sent.",
+    };
+
+    if (!user) {
+      return res.status(200).json(genericResponse);
+    }
+
+    // 1. Generate high-entropy 256-bit cryptographically secure reset token
+    const rawResetToken = crypto.randomBytes(32).toString("hex");
+
+    // 2. Hash token using SHA-256 before saving to database
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(rawResetToken)
+      .digest("hex");
+
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour expiration
+
+    await user.save();
+
+    // 3. Send email with raw unhashed token in the reset link
+    try {
+      await sendPasswordResetEmail(user.email, rawResetToken);
+    } catch (emailErr) {
+      console.error(
+        "Failed to send password reset email:",
+        emailErr?.message || emailErr
+      );
+    }
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const resetPassword = async (req, res, next) => {
+  try {
+    const token = req.params.token || req.body.token;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        message: "Password reset token is required",
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters long",
+      });
+    }
+
+    // Hash the supplied token to compare against the stored hash
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: "Invalid or expired password reset token",
+      });
+    }
+
+    // 1. Set new password (pre-save hook will hash it with bcrypt cost 10)
+    user.password = password;
+
+    // 2. Single-use: immediately consume and invalidate the reset token
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    // 3. Invalidate existing authentication sessions
+    user.passwordChangedAt = new Date();
+
+    await user.save();
+
+    return res.status(200).json({
+      message:
+        "Password has been successfully reset. Please log in with your new password.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
   verifyEmail,
   resendVerificationEmail,
+  requestPasswordReset,
+  resetPassword,
 };
