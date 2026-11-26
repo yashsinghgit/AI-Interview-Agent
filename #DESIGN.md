@@ -109,3 +109,5 @@ by default.
 2. Build one screen only. Do not touch other screens.
 3. After coding, review against every rule above and list anything still
    generic. If you find nothing, look again and list three.
+4. Never invent social proof: no fake user counts, ratings, testimonials
+    or company logos. Use only claims that are true today.
