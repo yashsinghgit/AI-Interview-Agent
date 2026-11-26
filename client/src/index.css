@@ -1,1 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+
+:root {
+  --background: #FAF8F5;
+  --card: #FFFFFF;
+  --foreground: #16130F;
+  --muted-foreground: #6B6459;
+  --muted: #F1EDE6;
+  --border: #E7E2D9;
+  --primary: #16130F;
+  --primary-foreground: #FAF8F5;
+  --accent: #E4572E;
+  --success: #2F7D4F;
+  --warning: #B7791F;
+  --destructive: #B42318;
+  --support: #2F5D50;
+  --support-tint: #E8EFEA;
+
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-reading: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-support: var(--support);
+  --color-support-tint: var(--support-tint);
+
+  --font-display: var(--font-display);
+  --font-reading: var(--font-reading);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}

@@ -1,23 +1,30 @@
-const {z} = require("zod");
+const { z } = require("zod");
 
 const questionSchema = z.object({
-    question: z.string().min(1),
+  phase: z.enum([
+    "warmup",
+    "resume",
+    "technical",
+    "problem_solving",
+    "behavioral",
+  ]),
 
-    category : z.enum([
-        "technical",
-        "resumeBased",
-        "projectBased",
-        "problemSolving",
-        "behavioral",
+  question: z.string().min(1),
 
-    ]),
+  is_followup: z.boolean(),
 
-    topic : z.string().min(1),
+  based_on: z.string().min(1),
 
-    reason : z.string().min(1)
+  transition: z.string().nullable().optional(),
+
+  greeting: z.string().nullable().optional(),
+
+  // Optional backward-compatibility fields
+  category: z.string().optional(),
+  topic: z.string().optional(),
+  reason: z.string().optional(),
 });
 
 module.exports = {
-    questionSchema,
+  questionSchema,
 };
-

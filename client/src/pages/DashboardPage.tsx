@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AxiosError } from "axios";
+import { toast } from "sonner";
 
 import Navbar from "../components/Navbar";
 import api from "../services/api";
-import { User, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
+import { DashboardSkeleton } from "../components/AppSkeletons";
+import { User, MoreVertical, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Interview {
   _id: string;
@@ -39,6 +42,13 @@ function DashboardPage() {
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loadingInterviews, setLoadingInterviews] = useState(true);
   const [error, setError] = useState("");
+
+  const { showSkeleton: showDashboardSkeleton } = useDelayedLoading(loadingInterviews, {
+    delay: 300,
+    timeout: 15000,
+    timeoutMessage: "This is taking longer than expected",
+    retryAction: () => loadInterviews(page),
+  });
   const [page, setPage] = useState(1);
   const limit = 10;
   const [pagination, setPagination] = useState<PaginationMetadata>({
@@ -124,29 +134,84 @@ function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  const handleDeleteInterview = async (interviewId: string) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to delete this interview and all associated data? This action cannot be undone."
-      )
-    ) {
-      return;
-    }
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const pendingDeletionsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-    try {
-      await api.delete(`/interviews/${interviewId}`);
-      if (interviews.length === 1 && page > 1) {
-        setPage((prev) => prev - 1);
-      } else {
-        loadInterviews(page);
+  // Close overflow menu on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-overflow-menu]")) {
+        setOpenMenuId(null);
       }
-    } catch (err) {
-      console.error("Failed to delete interview:", err);
-      const axiosError = err as AxiosError<{ message?: string }>;
-      alert(
-        axiosError.response?.data?.message || "Failed to delete interview."
-      );
-    }
+    };
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, []);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    const pending = pendingDeletionsRef.current;
+    return () => {
+      pending.forEach((timer) => clearTimeout(timer));
+      pending.clear();
+    };
+  }, []);
+
+  const handleDeleteInterview = (interviewId: string) => {
+    setOpenMenuId(null);
+    const itemToDelete = interviews.find((item) => item._id === interviewId);
+    if (!itemToDelete) return;
+
+    // Immediately remove from the list
+    setInterviews((prev) => prev.filter((item) => item._id !== interviewId));
+
+    // Schedule API call in 6 seconds
+    const timer = setTimeout(async () => {
+      pendingDeletionsRef.current.delete(interviewId);
+      try {
+        await api.delete(`/interviews/${interviewId}`);
+        // Refresh page stats if last item deleted
+        if (interviews.length <= 1 && page > 1) {
+          setPage((prev) => prev - 1);
+        } else {
+          loadInterviews(page);
+        }
+      } catch (err) {
+        console.error("Failed to delete interview:", err);
+        const axiosError = err as AxiosError<{ message?: string }>;
+        const reason =
+          axiosError.response?.data?.message || "Failed to delete interview.";
+        toast.error(reason, {
+          duration: 6000,
+          action: {
+            label: "Retry",
+            onClick: () => handleDeleteInterview(interviewId),
+          },
+        });
+        // Restore item on failure
+        setInterviews((prev) => [itemToDelete, ...prev]);
+      }
+    }, 6000);
+
+    pendingDeletionsRef.current.set(interviewId, timer);
+
+    // Show toast with Undo action
+    toast("Interview deleted", {
+      duration: 6000,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          const activeTimer = pendingDeletionsRef.current.get(interviewId);
+          if (activeTimer) {
+            clearTimeout(activeTimer);
+            pendingDeletionsRef.current.delete(interviewId);
+          }
+          // Restore immediately to the list
+          setInterviews((prev) => [itemToDelete, ...prev]);
+        },
+      },
+    });
   };
 
   return (
@@ -175,61 +240,68 @@ function DashboardPage() {
             </button>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
-            {/* Total Interviews */}
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <p className="text-sm font-medium text-gray-500">
-                Total Interviews
-              </p>
-
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {stats.totalInterviews}
-              </p>
-
-              <p className="text-xs text-gray-400 mt-2">
-                All interview sessions
-              </p>
+          {/* Stats or Skeleton */}
+          {loadingInterviews && showDashboardSkeleton ? (
+            <div className="mb-10">
+              <DashboardSkeleton />
             </div>
+          ) : (
+            /* Stats */
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-10">
+              {/* Total Interviews */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+                <p className="text-sm font-medium text-gray-500">
+                  Total Interviews
+                </p>
 
-            {/* Completed */}
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <p className="text-sm font-medium text-gray-500">Completed</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.totalInterviews}
+                </p>
 
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {stats.completedInterviews}
-              </p>
+                <p className="text-xs text-gray-400 mt-2">
+                  All interview sessions
+                </p>
+              </div>
 
-              <p className="text-xs text-gray-400 mt-2">Finished interviews</p>
+              {/* Completed */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+                <p className="text-sm font-medium text-gray-500">Completed</p>
+
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.completedInterviews}
+                </p>
+
+                <p className="text-xs text-gray-400 mt-2">Finished interviews</p>
+              </div>
+
+              {/* In Progress */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+                <p className="text-sm font-medium text-gray-500">In Progress</p>
+
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {stats.inProgressInterviews}
+                </p>
+
+                <p className="text-xs text-gray-400 mt-2">
+                  Interviews to continue
+                </p>
+              </div>
+
+              {/* Average Score */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+                <p className="text-sm font-medium text-gray-500">Average Score</p>
+
+                <p className="text-3xl font-bold text-blue-600 mt-2">
+                  {stats.averageScore}
+                  <span className="text-lg text-gray-400">/100</span>
+                </p>
+
+                <p className="text-xs text-gray-400 mt-2">
+                  Across completed interviews
+                </p>
+              </div>
             </div>
-
-            {/* In Progress */}
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <p className="text-sm font-medium text-gray-500">In Progress</p>
-
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {stats.inProgressInterviews}
-              </p>
-
-              <p className="text-xs text-gray-400 mt-2">
-                Interviews to continue
-              </p>
-            </div>
-
-            {/* Average Score */}
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <p className="text-sm font-medium text-gray-500">Average Score</p>
-
-              <p className="text-3xl font-bold text-blue-600 mt-2">
-                {stats.averageScore}
-                <span className="text-lg text-gray-400">/100</span>
-              </p>
-
-              <p className="text-xs text-gray-400 mt-2">
-                Across completed interviews
-              </p>
-            </div>
-          </div>
+          )}
 
           {/* Quick Actions */}
           <section className="mb-10">
@@ -319,7 +391,7 @@ function DashboardPage() {
             </div>
 
             {/* Loading */}
-            {loadingInterviews && (
+            {loadingInterviews && !showDashboardSkeleton && (
               <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-10 text-center">
                 <p className="text-gray-500">Loading your interviews...</p>
               </div>
@@ -436,15 +508,41 @@ function DashboardPage() {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteInterview(interview._id)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                        title="Delete Interview & Resume Data"
-                        aria-label="Delete Interview"
-                      >
-                        <Trash2 size={17} />
-                      </button>
+                      {/* Overflow Menu with Delete Action */}
+                      <div className="relative" data-overflow-menu>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId((prev) =>
+                              prev === interview._id ? null : interview._id
+                            );
+                          }}
+                          className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-md transition"
+                          title="More options"
+                          aria-label="More options"
+                          aria-haspopup="true"
+                          aria-expanded={openMenuId === interview._id}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+
+                        {openMenuId === interview._id && (
+                          <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--card)] border border-[var(--border)] rounded-md shadow-md py-1 z-20 font-sans">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteInterview(interview._id);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase tracking-wider text-[var(--destructive)] hover:bg-[var(--muted)] transition text-left"
+                            >
+                              <Trash2 size={13} />
+                              Delete interview
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

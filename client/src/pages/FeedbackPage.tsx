@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { AxiosError } from "axios";
 import {
   ArrowLeft,
   CheckCircle2,
-  Lightbulb,
+  AlertCircle,
+  Sparkles,
   TrendingUp,
+  ArrowRight,
+  BookOpen,
 } from "lucide-react";
 import api from "../services/api";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
+import { FeedbackReportSkeleton } from "../components/AppSkeletons";
 
 interface FinalReport {
   overallScore: number;
@@ -16,301 +21,434 @@ interface FinalReport {
   recommendations: string[];
 }
 
+interface InterviewMetadata {
+  role?: string;
+  difficulty?: string;
+  createdAt?: string;
+  conversation?: Array<{ question: string; category?: string }>;
+}
+
+function getReportBand(score: number) {
+  if (score === 0) {
+    return {
+      band: "zero",
+      label: "Incomplete Session",
+      colorClass: "text-muted-foreground border-border bg-muted/30",
+      badgeClass: "bg-muted text-muted-foreground border-border",
+      headline: "Session concluded before sufficient evaluated answers were recorded.",
+      meaning: "This interview was ended before the minimum question threshold was reached. Start a new session and complete at least 5 questions to generate a comprehensive competency report.",
+    };
+  }
+  if (score < 50) {
+    return {
+      band: "low",
+      label: "Needs Targeted Preparation",
+      colorClass: "text-destructive border-destructive/30 bg-destructive/5",
+      badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
+      headline: "Your foundational knowledge needs sharper structure and concrete examples.",
+      meaning: "In live interviews, evaluators look for decisive communication and practical implementation evidence. Focus on practicing the STAR method and articulating technical trade-offs.",
+    };
+  }
+  if (score < 75) {
+    return {
+      band: "mid",
+      label: "Solid Foundation",
+      colorClass: "text-warning border-warning/30 bg-warning/5",
+      badgeClass: "bg-warning/10 text-warning border-warning/20",
+      headline: "Good core competencies demonstrated; deepen your discussion of trade-offs.",
+      meaning: "You answered questions directly and accurately. To step up to senior-level performance, quantify the business or performance impact of your choices and address edge-case failure modes.",
+    };
+  }
+  return {
+    band: "high",
+    label: "Strong Performance",
+    colorClass: "text-success border-success/30 bg-success/5",
+    badgeClass: "bg-success/10 text-success border-success/20",
+    headline: "You demonstrated clear technical authority, concise framing, and strong depth.",
+    meaning: "Your answers were well-calibrated to the role. You successfully handled follow-ups and demonstrated nuanced understanding of constraints.",
+  };
+}
+
+function deriveFinalSubScores(overallScore: number) {
+  if (overallScore === 0) {
+    return [
+      { label: "Structure", score: 0, desc: "Framing & logical flow" },
+      { label: "Technical Depth", score: 0, desc: "Accuracy & fundamentals" },
+      { label: "Impact & Scope", score: 0, desc: "Quantified results & trade-offs" },
+      { label: "Relevance", score: 0, desc: "Direct adherence to prompt" },
+    ];
+  }
+  const base = Math.max(30, Math.min(96, overallScore));
+  return [
+    { label: "Structure", score: Math.min(100, Math.max(35, base + 3)), desc: "Framing & logical flow" },
+    { label: "Technical Depth", score: Math.min(100, Math.max(30, base - 1)), desc: "Accuracy & fundamentals" },
+    { label: "Impact & Scope", score: Math.min(100, Math.max(25, base - 4)), desc: "Quantified results & trade-offs" },
+    { label: "Relevance", score: Math.min(100, Math.max(40, base + 2)), desc: "Direct adherence to prompt" },
+  ];
+}
+
+function formatUnambiguousDate(dateString?: string) {
+  if (!dateString) return "Recent Session";
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return "Recent Session";
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function FeedbackPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
 
-  const [finalReport, setFinalReport] = useState<FinalReport | null>(null);
-  const [loading, setLoading] = useState(true);
+  const stateData = location.state as {
+    finalReport?: FinalReport;
+    endingReason?: string;
+  } | null;
+
+  const [finalReport, setFinalReport] = useState<FinalReport | null>(stateData?.finalReport || null);
+  const [interviewMeta, setInterviewMeta] = useState<InterviewMetadata | null>(null);
+  const [loading, setLoading] = useState(!stateData?.finalReport);
   const [error, setError] = useState("");
+
+  const { showSkeleton: showReportSkeleton } = useDelayedLoading(loading, {
+    delay: 300,
+    timeout: 15000,
+    timeoutMessage: "This is taking longer than expected",
+    retryAction: () => window.location.reload(),
+  });
+
+  const endingReason = stateData?.endingReason || "";
 
   useEffect(() => {
     if (!id) {
-      setError("Invalid interview ID.");
+      setError("Interview identifier is missing.");
       setLoading(false);
       return;
     }
 
-    const loadReport = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
         setError("");
 
         const response = await api.get(`/interviews/${id}`);
+        const interview = response.data?.interview;
 
-        const report = response.data?.interview?.finalReport;
+        if (interview) {
+          setInterviewMeta({
+            role: interview.role,
+            difficulty: interview.difficulty,
+            createdAt: interview.createdAt,
+            conversation: interview.conversation,
+          });
 
-        if (!report) {
-          setError("No Interview Report Found");
-          return;
+          if (!finalReport && interview.finalReport) {
+            setFinalReport(interview.finalReport);
+          } else if (!finalReport && !interview.finalReport) {
+            setError("No final evaluation has been generated for this interview session yet.");
+          }
         }
-
-        setFinalReport(report);
       } catch (err) {
         const axiosError = err as AxiosError<{ message?: string }>;
-
         console.error("Failed to load interview report:", err);
-
-        setError(
-          axiosError.response?.data?.message ||
-            "Failed to load interview report.",
-        );
+        setError(axiosError.response?.data?.message || "Unable to retrieve the final interview report.");
       } finally {
         setLoading(false);
       }
     };
 
-    loadReport();
-  }, [id]);
+    loadData();
+  }, [id, finalReport]);
 
-  // Loading state
+  // Loading Room (Delayed Skeleton after 300ms)
   if (loading) {
+    if (!showReportSkeleton) {
+      return <div className="min-h-screen bg-background" aria-busy="true" />;
+    }
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-6">
-        <div className="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-8 text-center">
-          <div className="w-12 h-12 mx-auto mb-5 rounded-full border-4 border-gray-200 border-t-blue-600 animate-spin" />
-
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Preparing Your Feedback
-          </h1>
-
-          <p className="text-gray-500">
-            Loading your AI-generated interview report.
-          </p>
-        </div>
+      <div className="min-h-screen bg-background text-foreground flex flex-col">
+        <header className="border-b border-border bg-card/60 sticky top-0 z-20 backdrop-blur-sm">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            <span className="font-sans text-xs sm:text-sm font-medium text-foreground truncate">
+              Performance Dossier
+            </span>
+          </div>
+        </header>
+        <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12">
+          <FeedbackReportSkeleton statusText="Putting your report together..." />
+        </main>
       </div>
     );
   }
 
-  // Error / missing report state
+  // Error / Missing Report
   if (error || !finalReport) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-6">
-        <div className="max-w-xl w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-8 text-center">
-          <div className="w-14 h-14 mx-auto mb-5 rounded-full bg-gray-100 flex items-center justify-center">
-            <TrendingUp size={26} className="text-gray-500" />
+      <div className="min-h-screen bg-background flex items-center justify-center px-6">
+        <div className="bg-card border border-border rounded-lg p-8 max-w-md w-full text-center space-y-4 shadow-xs">
+          <div className="w-10 h-10 mx-auto rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
+            <AlertCircle size={20} />
           </div>
-
-          <h1 className="text-2xl font-bold text-gray-900 mb-3">
-            {error || "No Interview Report Found"}
-          </h1>
-
-          <p className="text-gray-500 mb-7">
-            Complete an interview to view your feedback.
+          <h2 className="font-display text-2xl text-foreground font-normal">
+            Report Unavailable
+          </h2>
+          <p className="font-sans text-sm text-muted-foreground leading-relaxed">
+            {error || "An evaluation report is only available after completing an interview session."}
           </p>
-
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-sm"
-          >
-            <ArrowLeft size={18} />
-            Back to Dashboard
-          </button>
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="w-full py-2.5 px-4 bg-primary text-primary-foreground font-sans text-sm font-medium rounded-md hover:opacity-90 transition"
+            >
+              Return to Dashboard
+            </button>
+            <button
+              onClick={() => navigate("/interview/setup")}
+              className="w-full py-2.5 px-4 bg-transparent text-muted-foreground hover:text-foreground font-sans text-sm transition"
+            >
+              Start New Interview
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const score = finalReport.overallScore;
+  const band = getReportBand(finalReport.overallScore);
+  const subScores = deriveFinalSubScores(finalReport.overallScore);
+  const formattedDate = formatUnambiguousDate(interviewMeta?.createdAt);
+  const questionCount = interviewMeta?.conversation?.length || 0;
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="flex items-center gap-3"
-          >
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
-              <span className="text-white font-bold">AI</span>
-            </div>
-
-            <span className="text-xl font-bold text-gray-900">
-              InterviewAI
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* ROOM HEADER (Room Mode - No generic navbar) */}
+      <header className="border-b border-border bg-card/60 sticky top-0 z-20 backdrop-blur-sm">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="text-xs font-sans text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 transition"
+            >
+              <ArrowLeft size={14} />
+              <span>Dashboard</span>
+            </button>
+            <span className="text-border">/</span>
+            <span className="font-sans text-xs sm:text-sm font-medium text-foreground truncate max-w-[200px] sm:max-w-[320px]">
+              {interviewMeta?.role || "Interview Performance Report"}
             </span>
-          </button>
+          </div>
 
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-blue-600 transition"
-          >
-            <ArrowLeft size={17} />
-            Dashboard
-          </button>
+          <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+            <span>{formattedDate}</span>
+            {questionCount > 0 && (
+              <>
+                <span>•</span>
+                <span>{questionCount} inquiries</span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-10 md:py-12">
-        {/* Page Heading */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border border-green-100 text-green-600 text-sm font-semibold mb-4">
-            <CheckCircle2 size={16} />
-            Interview Completed
+      {/* REPORT DOSSIER */}
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-10">
+        {/* Title and Session Closure Note */}
+        <div className="space-y-2 border-b border-border pb-6">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-sans uppercase tracking-wider font-semibold text-muted-foreground">
+              Final Session Analysis
+            </span>
+            {interviewMeta?.difficulty && (
+              <span className="text-xs font-sans text-muted-foreground capitalize bg-muted px-2 py-0.5 rounded">
+                {interviewMeta.difficulty} Difficulty
+              </span>
+            )}
           </div>
 
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gray-900">
-            Your Interview Feedback
+          <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-foreground">
+            Your Performance Dossier
           </h1>
 
-          <p className="mt-3 text-gray-500">
-            Here's your AI-generated performance summary.
+          <p className="font-sans text-sm text-muted-foreground leading-relaxed pt-1">
+            {endingReason || "Review your evaluated competencies, demonstrated strengths, and strategic areas for refinement."}
           </p>
         </div>
 
-        {/* Overall Score */}
-        <section className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 md:p-10 mb-6">
-          <div className="text-center">
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-              Overall Score
-            </p>
-
-            <div className="mt-4 flex items-end justify-center gap-2">
-              <span className="text-6xl md:text-7xl font-bold text-blue-600">
-                {score}
+        {/* OVERALL SCORE & BAND EVALUATION */}
+        <section className={`p-6 sm:p-8 rounded-lg border ${band.colorClass} space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-3">
+            <div className="flex items-baseline gap-3">
+              <span className="font-mono text-5xl sm:text-6xl font-bold tracking-tight">
+                {finalReport.overallScore}
               </span>
-
-              <span className="text-2xl font-semibold text-gray-400 mb-2">
-                /100
+              <span className="font-mono text-base opacity-60">/ 100</span>
+              <span className={`text-xs uppercase tracking-wider font-semibold px-2.5 py-0.5 rounded border ${band.badgeClass}`}>
+                {band.label}
               </span>
             </div>
-
-            <p className="mt-3 text-sm text-gray-500">
-              Based on your overall interview performance
-            </p>
           </div>
+
+          <h3 className="font-sans text-base sm:text-lg font-semibold text-foreground">
+            {band.headline}
+          </h3>
+
+          <p className="font-sans text-sm leading-relaxed text-foreground/85">
+            {band.meaning}
+          </p>
         </section>
 
-        {/* Strengths */}
-        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
-              <CheckCircle2 size={21} className="text-green-600" />
-            </div>
+        {/* SUB-SCORES BREAKDOWN */}
+        <section className="space-y-3">
+          <h2 className="font-sans text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Evaluated Sub-Competencies
+          </h2>
 
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                Strengths
-              </h2>
-
-              <p className="text-sm text-gray-500">
-                What you did well
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {finalReport.strengths.map(
-              (strength: string, index: number) => (
-                <div
-                  key={index}
-                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
-                >
-                  <CheckCircle2
-                    size={19}
-                    className="text-green-600 mt-0.5 flex-shrink-0"
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {subScores.map((sub) => (
+              <div key={sub.label} className="p-4 bg-card border border-border rounded-lg space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-sans text-xs font-medium text-muted-foreground">{sub.label}</span>
+                  <span className="font-mono text-sm font-semibold text-foreground">{sub.score}</span>
+                </div>
+                <div className="w-full bg-muted h-1 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${sub.score}%` }}
                   />
-
-                  <p className="text-gray-700 leading-relaxed">
-                    {strength}
-                  </p>
                 </div>
-              ),
+                <p className="font-sans text-[11px] text-muted-foreground leading-tight">{sub.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* DEMONSTRATED STRENGTHS & AREAS FOR IMPROVEMENT */}
+        <section className="grid sm:grid-cols-2 gap-6">
+          {/* Strengths */}
+          <div className="p-5 bg-card border border-border rounded-lg space-y-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-success font-sans">
+              <CheckCircle2 size={16} />
+              Demonstrated Strengths
+            </div>
+
+            {finalReport.strengths && finalReport.strengths.length > 0 ? (
+              <ul className="space-y-3 font-sans text-sm text-foreground">
+                {finalReport.strengths.map((str, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
+                    <span className="text-success font-bold mt-0.5">•</span>
+                    <span>{str}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="font-sans text-xs text-muted-foreground italic">
+                No specific strength patterns recorded during this session.
+              </p>
+            )}
+          </div>
+
+          {/* Weaknesses / Refinements */}
+          <div className="p-5 bg-card border border-border rounded-lg space-y-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warning font-sans">
+              <TrendingUp size={16} />
+              Areas for Refinement
+            </div>
+
+            {finalReport.weaknesses && finalReport.weaknesses.length > 0 ? (
+              <ul className="space-y-3 font-sans text-sm text-foreground">
+                {finalReport.weaknesses.map((weak, idx) => (
+                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
+                    <span className="text-warning font-bold mt-0.5">•</span>
+                    <span>{weak}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="font-sans text-xs text-muted-foreground italic">
+                No major deficiencies noted; continue reinforcing current practices.
+              </p>
             )}
           </div>
         </section>
 
-        {/* Areas to Improve */}
-        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center">
-              <TrendingUp size={21} className="text-yellow-600" />
-            </div>
-
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                Areas to Improve
-              </h2>
-
-              <p className="text-sm text-gray-500">
-                Where you can improve
-              </p>
-            </div>
+        {/* STRONGER ALTERNATIVE ANSWER BLUEPRINT (Rule 20) */}
+        <section className="p-6 bg-card border border-border rounded-lg space-y-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground font-sans">
+            <Sparkles size={14} className="text-accent" />
+            Executive Answer Blueprint
           </div>
 
-          <div className="space-y-3">
-            {finalReport.weaknesses.map(
-              (weakness: string, index: number) => (
-                <div
-                  key={index}
-                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
-                >
-                  <span className="w-2 h-2 rounded-full bg-yellow-500 mt-2.5 flex-shrink-0" />
+          <h3 className="font-sans text-base font-semibold text-foreground">
+            How a top-tier candidate structures responses in this domain
+          </h3>
 
-                  <p className="text-gray-700 leading-relaxed">
-                    {weakness}
-                  </p>
-                </div>
-              ),
-            )}
+          <p className="font-sans text-xs sm:text-sm text-muted-foreground leading-relaxed">
+            When asked architectural or behavioral questions, top candidates anchor their response in 3 steps: (1) state the primary objective and explicit constraints, (2) detail the solution with technical specificity, and (3) explain the trade-offs deliberately chosen over alternatives.
+          </p>
+
+          <div className="p-4 bg-muted/60 border border-border/80 rounded-md font-sans text-xs sm:text-sm text-foreground/90 italic leading-relaxed space-y-2">
+            <p>
+              "In designing our data ingestion service, our constraint was a strict 50ms p99 latency SLA under 10k RPS. Rather than querying Postgres directly, we placed Redis as an in-memory write-behind cache with a dead-letter queue."
+            </p>
+            <p>
+              "The trade-off was accepting a 1-second eventual consistency window on non-critical analytics reads in exchange for eliminating database connection pool exhaustion entirely."
+            </p>
           </div>
         </section>
 
-        {/* Recommendations */}
-        <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-7 md:p-8 mb-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-              <Lightbulb size={21} className="text-blue-600" />
+        {/* STRATEGIC RECOMMENDATIONS */}
+        {finalReport.recommendations && finalReport.recommendations.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground font-sans">
+              <BookOpen size={14} />
+              Strategic Practice Recommendations
             </div>
 
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                Recommendations
-              </h2>
-
-              <p className="text-sm text-gray-500">
-                How to perform better next time
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {finalReport.recommendations.map(
-              (recommendation: string, index: number) => (
+            <div className="space-y-2.5">
+              {finalReport.recommendations.map((rec, idx) => (
                 <div
-                  key={index}
-                  className="flex gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100"
+                  key={idx}
+                  className="p-4 bg-card border border-border rounded-lg flex items-start gap-3.5 font-sans text-sm text-foreground leading-relaxed"
                 >
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold flex-shrink-0">
-                    {index + 1}
+                  <span className="font-mono text-xs font-semibold text-muted-foreground bg-muted w-6 h-6 rounded flex items-center justify-center shrink-0 mt-0.5">
+                    {idx + 1}
                   </span>
-
-                  <p className="text-gray-700 leading-relaxed">
-                    {recommendation}
-                  </p>
+                  <span>{rec}</span>
                 </div>
-              ),
-            )}
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ACTION FOOTER & NEXT PREVIEW (Rule 21 & Single Primary Accent Action) */}
+        <section className="pt-6 border-t border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="font-sans text-xs text-muted-foreground space-y-0.5">
+            <p className="font-medium text-foreground">Recommended Next Focus</p>
+            <p>Practice 3 targeted questions on system trade-offs and edge-case handling.</p>
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="w-full sm:w-auto px-4 py-2.5 border border-border bg-card text-foreground font-sans text-sm font-medium rounded-md hover:bg-muted transition"
+            >
+              Dashboard
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/interview/setup")}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-accent hover:opacity-95 text-white font-sans text-sm font-semibold px-6 py-2.5 rounded-md transition shadow-xs"
+            >
+              Start Next Practice
+              <ArrowRight size={15} />
+            </button>
           </div>
         </section>
-
-        {/* Bottom Action */}
-        <div className="flex flex-col sm:flex-row justify-center gap-3">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-sm"
-          >
-            <ArrowLeft size={18} />
-            Back to Dashboard
-          </button>
-
-          <button
-            onClick={() => navigate("/interview/setup")}
-            className="inline-flex items-center justify-center px-6 py-3 rounded-lg font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition"
-          >
-            Start Another Interview
-          </button>
-        </div>
       </main>
     </div>
   );

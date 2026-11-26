@@ -16,7 +16,7 @@ const {
 
 const createInterview = async (req, res, next) => {
   try {
-    const { role, difficulty, jobDescription, resumeText } = req.body;
+    const { role, difficulty, jobDescription, resumeText, mode = "practice" } = req.body;
     const userId = req.user.userId;
 
     const interviewPlan = await generateInterviewPlan({
@@ -26,11 +26,14 @@ const createInterview = async (req, res, next) => {
       resumeText: resumeText || "",
     });
 
-    const durationMinutes = 30;
+    const durationMinutes = 20;
     const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000);
 
     const interview = await Interview.create({
       user: userId,
+      title: role.trim(),
+      mode: mode === "mock" ? "mock" : "practice",
+      currentPhase: "warmup",
       role,
       difficulty,
       jobDescription,
@@ -389,27 +392,38 @@ const getNextQuestion = async (req, res, next) => {
     // Only commit if this request still holds the valid, unexpired lock
     // ------------------------------------------
     const commitTime = new Date();
+    const updateFields = {
+      $push: {
+        conversation: {
+          phase: generatedQuestion.phase,
+          question: generatedQuestion.question,
+          is_followup: generatedQuestion.is_followup || false,
+          based_on: generatedQuestion.based_on || "",
+          transition: generatedQuestion.transition || null,
+          category: generatedQuestion.category,
+          topic: generatedQuestion.topic,
+          reason: generatedQuestion.reason,
+        },
+      },
+      $inc: { currentQuestion: 1 },
+      $set: {
+        currentPhase: generatedQuestion.phase,
+        "questionLock.token": null,
+        "questionLock.expiresAt": null,
+      },
+    };
+
+    if (generatedQuestion.greeting && !lockedInterview.greeting) {
+      updateFields.$set.greeting = generatedQuestion.greeting;
+    }
+
     const updatedInterview = await Interview.findOneAndUpdate(
       {
         _id: id,
         "questionLock.token": lockToken,
         "questionLock.expiresAt": { $gt: commitTime },
       },
-      {
-        $push: {
-          conversation: {
-            question: generatedQuestion.question,
-            category: generatedQuestion.category,
-            topic: generatedQuestion.topic,
-            reason: generatedQuestion.reason,
-          },
-        },
-        $inc: { currentQuestion: 1 },
-        $set: {
-          "questionLock.token": null,
-          "questionLock.expiresAt": null,
-        },
-      },
+      updateFields,
       {
         returnDocument: "after",
       }
@@ -427,6 +441,7 @@ const getNextQuestion = async (req, res, next) => {
 
     return res.status(200).json({
       message: "Question generated successfully",
+      greeting: updatedInterview.greeting || null,
       question: {
         number: updatedInterview.currentQuestion,
         ...generatedQuestion,
@@ -630,12 +645,8 @@ const submitAnswer = async (req, res, next) => {
     // ------------------------------------------
     // 6. Adaptive decision & report generation outside DB lock
     // ------------------------------------------
-    const minimumQuestions =
-      claimedInterview.interviewPlan?.interviewStrategy?.questionRange
-        ?.minimum || 15;
-    const maximumQuestions =
-      claimedInterview.interviewPlan?.interviewStrategy?.questionRange
-        ?.maximum || 25;
+    const minimumQuestions = 5;
+    const maximumQuestions = 15;
 
     // Build updated conversation array in memory
     const updatedConversation = claimedInterview.conversation.map(
@@ -643,15 +654,24 @@ const submitAnswer = async (req, res, next) => {
         if (idx === currentQuestionIndex) {
           return {
             _id: item._id,
+            phase: item.phase || claimedInterview.currentPhase || "warmup",
             question: item.question,
             answer: trimmedAnswer,
             score: evaluation.score,
+            headline: evaluation.headline,
             evaluation: evaluation.evaluation,
             strengths: evaluation.strengths,
+            improvements: evaluation.improvements,
             weaknesses: evaluation.weaknesses,
+            subscores: evaluation.subscores,
+            stronger_answer: evaluation.stronger_answer,
+            enough_signal: evaluation.enough_signal,
+            is_followup: item.is_followup || false,
+            based_on: item.based_on || "",
+            transition: item.transition || null,
             category: item.category,
             topic: item.topic,
-            reason: item.reason,
+            reason: evaluation.reason || item.reason,
             status: "answered",
           };
         }
@@ -662,12 +682,13 @@ const submitAnswer = async (req, res, next) => {
     let newCurrentQuestion = claimedInterview.currentQuestion;
     let newFollowUpCount = claimedInterview.followUpCount;
     let newTopic = claimedInterview.currentTopic;
+    let newPhase = claimedInterview.currentPhase || "warmup";
     let isCompleted = false;
     let finalReport = null;
     let nextQuestionData = null;
     let responseType = "next"; // "completed_max" | "completed_adaptive" | "follow_up" | "new_topic"
 
-    // Case A: Hard maximum question limit reached
+    // Case A: Hard maximum question limit reached (15 questions)
     if (claimedInterview.currentQuestion >= maximumQuestions) {
       finalReport = await aiService.generateFinalReport(claimedInterview);
       isCompleted = true;
@@ -701,30 +722,43 @@ const submitAnswer = async (req, res, next) => {
         followUp.decision === "follow_up" &&
         claimedInterview.followUpCount < 2
       ) {
+        // Follow-ups stay inside the current phase
         newFollowUpCount += 1;
         newCurrentQuestion += 1;
-        newTopic = followUp.topic;
+        newTopic = followUp.topic || followUp.based_on;
+        newPhase = claimedInterview.currentPhase || "warmup";
+        followUp.phase = newPhase;
+        followUp.is_followup = true;
         nextQuestionData = followUp;
         responseType = "follow_up";
 
         updatedConversation.push({
+          phase: newPhase,
           question: followUp.question,
+          is_followup: true,
+          based_on: followUp.based_on || "",
+          transition: followUp.transition || null,
           category: followUp.category,
           topic: followUp.topic,
           reason: followUp.reason,
           status: "unanswered",
         });
       } else {
-        // Case C: New topic
-        const nextQ = await aiService.generateQuestion(claimedInterview);
+        // Case C: New topic / next phase in sequence (warmup -> resume -> technical -> problem_solving -> behavioral)
+        newPhase = aiService.determineNextPhase(claimedInterview, false);
+        const nextQ = await aiService.generateQuestion(claimedInterview, newPhase);
         newFollowUpCount = 0;
         newCurrentQuestion += 1;
-        newTopic = nextQ.topic;
+        newTopic = nextQ.topic || nextQ.based_on;
         nextQuestionData = nextQ;
         responseType = "new_topic";
 
         updatedConversation.push({
+          phase: nextQ.phase || newPhase,
           question: nextQ.question,
+          is_followup: false,
+          based_on: nextQ.based_on || "",
+          transition: nextQ.transition || null,
           category: nextQ.category,
           topic: nextQ.topic,
           reason: nextQ.reason,
@@ -742,6 +776,7 @@ const submitAnswer = async (req, res, next) => {
       currentQuestion: newCurrentQuestion,
       followUpCount: newFollowUpCount,
       currentTopic: newTopic,
+      currentPhase: newPhase,
       "answerLock.token": null,
       "answerLock.questionId": null,
       "answerLock.expiresAt": null,
@@ -779,6 +814,8 @@ const submitAnswer = async (req, res, next) => {
     // ------------------------------------------
     // 8. Send response
     // ------------------------------------------
+    const isMockMode = committedInterview.mode === "mock";
+
     if (isCompleted) {
       const message =
         responseType === "completed_max"
@@ -792,11 +829,16 @@ const submitAnswer = async (req, res, next) => {
       });
     }
 
+    // In mock mode, withhold evaluation details until final report at the end
+    const responseEvaluation = isMockMode ? null : evaluation;
+
     if (responseType === "follow_up") {
       return res.status(200).json({
-        message:
-          "Answer evaluated and adaptive follow-up generated successfully",
-        evaluation,
+        message: isMockMode
+          ? "Answer recorded successfully"
+          : "Answer evaluated and adaptive follow-up generated successfully",
+        mode: committedInterview.mode,
+        ...(responseEvaluation ? { evaluation: responseEvaluation } : {}),
         question: {
           number: committedInterview.currentQuestion,
           ...nextQuestionData,
@@ -805,8 +847,11 @@ const submitAnswer = async (req, res, next) => {
     }
 
     return res.status(200).json({
-      message: "Answer evaluated and next question generated successfully",
-      evaluation,
+      message: isMockMode
+        ? "Answer recorded successfully"
+        : "Answer evaluated and next question generated successfully",
+      mode: committedInterview.mode,
+      ...(responseEvaluation ? { evaluation: responseEvaluation } : {}),
       question: {
         number: committedInterview.currentQuestion,
         ...nextQuestionData,
@@ -871,11 +916,11 @@ const completeInterview = async (req, res, next) => {
     const now = new Date();
     const effectiveExpiresAt =
       interview.expiresAt ||
-      new Date(interview.createdAt.getTime() + 30 * 60 * 1000);
-    const isActuallyTimedOut = now >= new Date(effectiveExpiresAt);
+      new Date(interview.createdAt.getTime() + (interview.durationMinutes || 20) * 60 * 1000);
+    const isActuallyTimedOut = timedOut || now >= new Date(effectiveExpiresAt);
 
     const minimumQuestions =
-      interview.interviewPlan.interviewStrategy.questionRange.minimum;
+      interview.interviewPlan?.interviewStrategy?.questionRange?.minimum || 5;
 
     if (!isActuallyTimedOut && interview.currentQuestion < minimumQuestions) {
       return res.status(400).json({

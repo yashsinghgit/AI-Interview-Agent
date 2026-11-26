@@ -2,8 +2,8 @@ import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, UserPlus, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 import api from "../services/api";
-
 
 function RegisterPage() {
   const navigate = useNavigate();
@@ -19,12 +19,12 @@ function RegisterPage() {
 
   async function handleRegister() {
     if (!name || !email || !password || !confirmPassword) {
-      alert("Please fill in all fields.");
+      toast.error("Please fill in all fields.", { duration: 4000 });
       return;
     }
 
     if (password !== confirmPassword) {
-      alert("Passwords do not match.");
+      toast.error("Passwords do not match.", { duration: 4000 });
       return;
     }
 
@@ -39,9 +39,9 @@ function RegisterPage() {
 
       const message =
         response.data?.message ||
-        "Registration Successful! Please check your email to verify your account.";
+        "Registration successful. Please check your email to verify your account.";
 
-      alert(message);
+      toast.success(message, { duration: 4000 });
 
       navigate("/login");
     } catch (error) {
@@ -51,44 +51,57 @@ function RegisterPage() {
         const status = error.response?.status;
         const backendMessage = error.response?.data?.message;
 
+        let reason = "Registration failed. Please try again.";
+
         switch (status) {
           case 400:
-            alert(
+            reason =
               typeof backendMessage === "string"
                 ? backendMessage
-                : "Please check your input details."
-            );
+                : "Please check your input details.";
             break;
 
           case 401:
-            alert("Your session is invalid. Please try again.");
+            reason = "Your session is invalid. Please try again.";
             break;
 
           case 409:
-            alert(
+            reason =
               typeof backendMessage === "string"
                 ? backendMessage
-                : "An account with this email already exists. Please log in."
-            );
+                : "An account with this email already exists. Please log in.";
             break;
 
           case 429:
-            alert("Too many requests. Please try again later.");
+            reason = "Too many requests. Please try again later.";
             break;
 
           case 500:
-            alert("Something went wrong on our server. Please try again later.");
+            reason = "Something went wrong on our server. Please try again later.";
             break;
 
           default:
-            alert(
+            reason =
               typeof backendMessage === "string"
                 ? backendMessage
-                : "Registration failed. Please try again."
-            );
+                : "Registration failed. Please try again.";
         }
+
+        toast.error(reason, {
+          duration: 6000,
+          action: {
+            label: "Retry",
+            onClick: () => handleRegister(),
+          },
+        });
       } else {
-        alert("Unable to connect. Please check your internet connection.");
+        toast.error("Unable to connect. Please check your internet connection.", {
+          duration: 6000,
+          action: {
+            label: "Retry",
+            onClick: () => handleRegister(),
+          },
+        });
       }
     } finally {
       setLoading(false);

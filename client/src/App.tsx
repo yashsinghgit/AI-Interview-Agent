@@ -1,4 +1,5 @@
 import { Routes, Route } from "react-router-dom";
+import { Toaster } from "sonner";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -16,7 +17,8 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 function App() {
   return (
-    <Routes>
+    <>
+      <Routes>
       {/* Public Routes */}
       <Route path="/" element={<LandingPage />} />
 
@@ -48,6 +50,21 @@ function App() {
       {/* 404 */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    <Toaster
+      position="bottom-right"
+      toastOptions={{
+        duration: 4000,
+        className:
+          "!bg-[var(--card)] !text-[var(--foreground)] !border !border-[var(--border)] !rounded-md !font-sans !shadow-sm !text-xs !p-3.5",
+        style: {
+          backgroundColor: "var(--card)",
+          color: "var(--foreground)",
+          borderColor: "var(--border)",
+          fontFamily: "var(--font-sans)",
+        },
+      }}
+    />
+  </>
   );
 }
 

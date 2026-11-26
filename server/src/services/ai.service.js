@@ -451,8 +451,8 @@ Use exactly this structure:
   "interviewStrategy": {
     "primaryFocus": "<choose one allowed primaryFocus>",
     "questionRange": {
-      "minimum": 15,
-      "maximum": 25
+      "minimum": 5,
+      "maximum": 15
     }
   },
 
@@ -515,18 +515,87 @@ Use exactly this structure:
   }
 };
 
-const generateQuestion = async (interview) => {
+const PHASES = [
+  "warmup",
+  "resume",
+  "technical",
+  "problem_solving",
+  "behavioral",
+];
+
+const PHASE_TIME_BUDGETS_MINUTES = {
+  warmup: 2,
+  resume: 4,
+  technical: 6,
+  problem_solving: 5,
+  behavioral: 3,
+};
+
+/**
+ * Determines the next phase based on interview elapsed time and conversation progress.
+ * Sequence: warmup -> resume -> technical -> problem_solving -> behavioral
+ * Rules:
+ * - Never backwards.
+ * - Follow-ups stay inside the current phase.
+ * - Timer budgets (2, 4, 6, 5, 3 min) guide forward progression.
+ */
+const determineNextPhase = (interview, isFollowup = false) => {
+  const currentPhase = interview.currentPhase || "warmup";
+  const currentIndex = PHASES.indexOf(currentPhase);
+  const safeCurrentIndex = currentIndex === -1 ? 0 : currentIndex;
+
+  if (isFollowup) {
+    return PHASES[safeCurrentIndex];
+  }
+
+  // Calculate elapsed time in minutes
+  const createdAt = interview.createdAt ? new Date(interview.createdAt) : new Date();
+  const elapsedMinutes = Math.max(0, (Date.now() - createdAt.getTime()) / (60 * 1000));
+
+  // Cumulative threshold in minutes for each phase:
+  // warmup: 0-2 min
+  // resume: 2-6 min
+  // technical: 6-12 min
+  // problem_solving: 12-17 min
+  // behavioral: 17-20 min
+  const cumulativeBudgets = [2, 6, 12, 17, 20];
+  let targetIndex = safeCurrentIndex;
+
+  for (let i = 0; i < cumulativeBudgets.length; i++) {
+    if (elapsedMinutes >= cumulativeBudgets[i]) {
+      targetIndex = Math.max(targetIndex, i + 1);
+    }
+  }
+
+  // Also advance if questions in current phase have reached quota
+  const conversation = interview.conversation || [];
+  const questionsInCurrentPhase = conversation.filter(
+    (q) => (q.phase || q.category) === PHASES[safeCurrentIndex]
+  ).length;
+
+  if (questionsInCurrentPhase >= 2 && targetIndex === safeCurrentIndex) {
+    targetIndex = safeCurrentIndex + 1;
+  }
+
+  // Cap at final phase (never backward, max behavioral)
+  const finalIndex = Math.min(Math.max(safeCurrentIndex, targetIndex), PHASES.length - 1);
+  return PHASES[finalIndex];
+};
+
+const generateQuestion = async (interview, targetPhase = null) => {
   try {
-    const behavioralCount = (
-      (interview && interview.conversation) ||
-      []
-    ).filter((item) => item.category === "behavioral").length;
+    const isFirstQuestion = !interview.conversation || interview.conversation.length === 0;
+    const phase = targetPhase || determineNextPhase(interview, false);
 
     const prompt = `
-  You are an expert technical interviewer conducting a realistic adaptive interview.
+You are an expert technical interviewer conducting a realistic 20-minute adaptive interview.
 
-ROLE:
+ROLE (TITLE):
 ${interview.role}
+
+CURRENT PHASE:
+${phase}
+Allowed phases in strict sequential order: warmup, resume, technical, problem_solving, behavioral.
 
 DIFFICULTY:
 ${interview.difficulty}
@@ -537,78 +606,39 @@ ${interview.jobDescription}
 RESUME:
 ${interview.resumeText}
 
-INTERVIEW PLAN:
-${JSON.stringify(interview.interviewPlan, null, 2)}
-
 PREVIOUS CONVERSATION:
-${JSON.stringify(interview.conversation, null, 2)}
+${JSON.stringify(interview.conversation || [], null, 2)}
 
-CURRENT QUESTION NUMBER:
-${interview.currentQuestion}
+IS FIRST QUESTION:
+${isFirstQuestion}
 
-BEHAVIORAL QUESTION ASKED SO FAR:
-${behavioralCount}
-
-Your task is to generate ONLY the next best interview question.
+PHASE DEFINITIONS & TIME BUDGETS (total 20 min):
+1. warmup (2 min): Brief rapport building, icebreaker, or introduction to the session.
+2. resume (4 min): Specific questions probing claims, achievements, or projects on the candidate's resume.
+3. technical (6 min): Deep dive into core technical concepts, architecture, or tools required for the role.
+4. problem_solving (5 min): Real-world scenario, debugging, or design trade-off question.
+5. behavioral (3 min): Workplace behavioral question (communication, conflict, ownership, handling failure).
 
 RULES:
+1. Ask exactly ONE question. 1 to 2 sentences maximum. No greeting inside the question, no interviewer notes.
+2. The question must strictly belong to the "${phase}" phase.
+3. "based_on": specify the exact project, technology, or requirement from the candidate's resume or the job description that prompted this question.
+4. "is_followup": false (this is a primary phase question).
+5. "transition": a natural, professional transition phrase leading into this phase/topic (or null if first question).
+${
+  isFirstQuestion
+    ? `6. "greeting": Since this is question 1, include a brief, courteous 1-sentence greeting to the candidate welcoming them to the interview (e.g. "Welcome to your interview for the ${interview.role} position; let's get started."). For subsequent questions this will be omitted.`
+    : `6. Do NOT include any greeting.`
+}
 
-1. Ask exactly ONE question.
-
-2. Follow the interview plan and prioritize areas marked as "critical" or "high".
-
-3. Consider previous questions and answers to avoid unnecessary repetition.
-
-4. If a previous answer was weak or incomplete, you may ask a relevant follow-up question.
-
-5. If the previous topic has been explored sufficiently,move to another important area.
-
-6. Match the question difficulty to the selected difficulty level.
-
-7. Make the question realistic, specific, and appropriate for the candidate's role.
-
-8. The interview MUST contain at least 2 behavioral questions within the first 15 questions.
-
-9. Behavioral questions MUST genuinely assess workplace behavior and mindset, such as:
-   - teamwork
-   - conflict resolution
-   - handling feedback
-   - working under pressure
-   - prioritization
-   - ownership
-   - accountability
-   - adaptability
-   - decision making
-
-10. If fewer than 2 behavioral questions have been asked and there are not enough remaining questions to naturally include 2 behavioral questions, you MUST generate a behavioral question now.
-
-11. Do NOT turn a behavioral question into a technical question.
-
-12. Behavioral questions should preferably use realistic workplace situations and encourage the candidate to explain their actions and decisions.
-
-13. Once at least 2 behavioral questions have been asked, continue using the adaptive interview strategy normally.
-
-14. The interview may continue beyond Question 15 when further assessment is useful.
-
-15. NEVER choose "complete" before Question 15.
-
-16. The category field MUST be exactly one of:
-"technical"
-"resumeBased"
-"projectBased"
-"problemSolving"
-"behavioral"
-
-Do not use hyphens or spaces in category values.
-
-
-Return ONLY valid JSON in exactly this format:
-
+Return ONLY valid JSON matching this schema:
 {
-  "question": "The interview question",
-  "category": "technical",
-  "topic": "Specific topic being tested",
-  "reason": "Why this question was selected based on the interview plan and conversation"
+  "phase": "${phase}",
+  "question": "1-2 sentence question without greeting or notes",
+  "is_followup": false,
+  "based_on": "specific skill, project, or JD requirement",
+  "transition": ${isFirstQuestion ? "null" : '"string transition or null"'}
+  ${isFirstQuestion ? ',\n  "greeting": "Brief 1-sentence greeting"' : ""}
 }
 `;
 
@@ -625,21 +655,26 @@ Return ONLY valid JSON in exactly this format:
       "generateQuestion"
     );
 
-    console.log("Gemini generated question:", question);
-
-    const categoryMap = {
-      "resume-based": "resumeBased",
-      "project-based": "projectBased",
-      "problem-solving": "problemSolving",
-    };
-
-    if (categoryMap[question.category]) {
-      question.category = categoryMap[question.category];
+    question.phase = question.phase || phase;
+    question.is_followup = false;
+    question.based_on = question.based_on || interview.role;
+    question.transition = question.transition || null;
+    if (!question.category) {
+      // populate legacy category mapping
+      const categoryPhaseMap = {
+        warmup: "behavioral",
+        resume: "resumeBased",
+        technical: "technical",
+        problem_solving: "problemSolving",
+        behavioral: "behavioral",
+      };
+      question.category = categoryPhaseMap[phase] || "technical";
+      question.topic = question.based_on;
+      question.reason = question.transition || `Assessment for ${phase}`;
     }
 
-    questionSchema.parse(question);
-
-    return question;
+    const validatedQuestion = questionSchema.parse(question);
+    return validatedQuestion;
   } catch (error) {
     logAiEvent("error", "Question generation failed", {
       operationName: "generateQuestion",
@@ -651,7 +686,10 @@ Return ONLY valid JSON in exactly this format:
 
 async function evaluateAnswer(interview, question, answer) {
   const prompt = `
-  You are an expert technical interviewer evaluating a candidate's answer.
+You are an expert technical interviewer evaluating an answer in a 20-minute adaptive interview.
+
+CRITICAL TONE & AUDIENCE REQUIREMENT:
+Write directly to the user as "you" (second person). Never say "the candidate" or "the applicant".
 
 ROLE:
 ${interview.role}
@@ -662,52 +700,46 @@ ${interview.difficulty}
 JOB DESCRIPTION:
 ${interview.jobDescription}
 
+RESUME CONTEXT (candidate's actual background):
+${interview.resumeText}
+
 INTERVIEW QUESTION:
 ${question}
 
-CANDIDATE ANSWER:
+USER'S ANSWER:
 ${answer}
 
-Your task is to evaluate the candidate's answer fairly and realistically.
-
 EVALUATION RULES:
+1. "score": an integer 0-100 reflecting overall answer quality.
+2. "headline": a concise 1-sentence verdict addressed to "you" (e.g. "You clearly articulated the trade-offs between SQL and NoSQL, but missed caching strategies.").
+3. "strengths": exactly 2 concise bullet points describing what you did well (e.g. ["You gave a concrete production example.", "You addressed latency trade-offs directly."]).
+4. "improvements": exactly 2 actionable bullet points on what you should improve (e.g. ["You should explicitly state your cache invalidation strategy.", "Quantify the performance impact with metrics."]).
+5. "subscores": an object with scores 0-100 for each of:
+   - "structure": how well organized and structured your response was.
+   - "depth": technical rigor and understanding of mechanics.
+   - "impact": clarity of business/technical outcome and ownership.
+   - "relevance": how directly you answered the prompt.
+6. "stronger_answer": a concrete, rewritten model answer demonstrating how you could have answered this question more strongly, incorporating your own project or experience from your resume.
+7. "enough_signal": boolean indicating whether this answer provided sufficient signal on the topic (true) or if significant ambiguity/gaps remain (false).
+8. "reason": a short explanation of why signal is sufficient or what remains to be probed.
 
-1. Give a score between 0 and 100.
-
-2. Evaluate the answer based on:
-   - correctness
-   - technical understanding
-   - depth
-   - clarity
-   - relevance to the question
-
-3. Do not give a high score just because the answer is long.
-
-4. Do not be unnecessarily harsh.
-
-5. Identify specific strengths demonstrated in the answer.
-
-6. Identify specific weaknesses or missing concepts.
-
-7. The evaluation should help the candidate understand how to improve.
-
-Return ONLY valid JSON.
-
-Do not include:
-- Markdown
-- Code fences
-- Explanations outside JSON
-- Additional text
-
-Use exactly this structure:
-
+Return ONLY valid JSON matching this schema:
 {
   "score": 0,
-  "evaluation": "Overall evaluation of the candidate's answer",
-  "strengths": [],
-  "weaknesses": []
+  "headline": "One sentence summary addressed to you",
+  "strengths": ["Strength 1", "Strength 2"],
+  "improvements": ["Improvement 1", "Improvement 2"],
+  "subscores": {
+    "structure": 0,
+    "depth": 0,
+    "impact": 0,
+    "relevance": 0
+  },
+  "stronger_answer": "Rewritten answer using your project",
+  "enough_signal": true,
+  "reason": "Brief rationale for signal assessment"
 }
- `;
+`;
 
   try {
     const response = await callGeminiWithRetry(
@@ -723,6 +755,14 @@ Use exactly this structure:
       "evaluateAnswer"
     );
 
+    // Populate backward-compatible fields if omitted
+    if (!evaluation.evaluation) {
+      evaluation.evaluation = evaluation.headline;
+    }
+    if (!evaluation.weaknesses) {
+      evaluation.weaknesses = evaluation.improvements || [];
+    }
+
     const validateEvaluation = answerEvaluationSchema.parse(evaluation);
 
     return validateEvaluation;
@@ -736,20 +776,17 @@ Use exactly this structure:
 }
 
 const generateFollowUp = async (interview, question, answer, evaluation) => {
+  const currentPhase = interview.currentPhase || "warmup";
   const prompt = `
-You are an expert technical interviewer conducting an adaptive interview.
+You are an expert technical interviewer conducting an adaptive 20-minute interview.
 
-Your job is to decide what the candidate should receive next:
+INTERVIEW PHASES (in strict forward order):
+warmup (2 min) -> resume (4 min) -> technical (6 min) -> problem_solving (5 min) -> behavioral (3 min).
+Follow-ups MUST stay inside the current phase: "${currentPhase}".
 
-1. "follow_up" - continue probing the CURRENT topic
-2. "new_topic" - move to a DIFFERENT important topic
-3. "complete" - end the interview when enough evidence has been collected
-
-You must evaluate the candidate's latest answer using the complete interview context, current question, answer, evaluation, previous conversation, and interview plan.
-
-INTERVIEW CONTEXT:
-Role: ${interview.role}
-Difficulty: ${interview.difficulty}
+ROLE: ${interview.role}
+CURRENT PHASE: ${currentPhase}
+DIFFICULTY: ${interview.difficulty}
 
 JOB DESCRIPTION:
 ${interview.jobDescription || "Not provided"}
@@ -757,339 +794,37 @@ ${interview.jobDescription || "Not provided"}
 RESUME:
 ${interview.resumeText || "Not provided"}
 
-CURRENT INTERVIEW PLAN:
-${JSON.stringify(interview.interviewPlan, null, 2)}
-
 CURRENT QUESTION:
 ${question}
 
 CANDIDATE ANSWER:
 ${answer}
 
-ANSWER EVALUATION:
+EVALUATION:
 ${JSON.stringify(evaluation, null, 2)}
 
 PREVIOUS CONVERSATION:
 ${JSON.stringify(interview.conversation, null, 2)}
 
-
-==================================================
-ADAPTIVE INTERVIEW RULES
-==================================================
-
-Your goal is NOT simply to generate another question.
-
-Your goal is to intelligently determine what information about the candidate is still missing.
-
-Every new question should help assess an important skill, topic, or competency from the interview plan.
-
-Avoid asking repetitive questions when sufficient evidence has already been collected.
-
-
-==================================================
-DECISION 1: FOLLOW_UP
-==================================================
-
-Choose "follow_up" ONLY when continuing the CURRENT topic provides meaningful additional information.
-
-Choose "follow_up" when:
-
-- The candidate's answer is substantially incomplete.
-- There is a significant technical misunderstanding.
-- There is a significant weakness that is important for evaluating the candidate.
-- The candidate made a questionable technical claim that needs verification.
-- An important part of the current question was not addressed.
-- The candidate's answer creates a useful opportunity to probe deeper into the SAME topic.
-- Further investigation of the current topic would meaningfully improve the assessment.
-
-Do NOT choose "follow_up" merely because the answer could contain more detail.
-
-Do NOT keep asking follow-up questions indefinitely.
-
-Once a topic has been sufficiently explored, move to a new topic.
-
-IMPORTANT:
-
-- A follow-up question should normally remain in the SAME category as the current question.
-- A behavioral question should generally NOT generate another behavioral follow-up.
-- Do not repeatedly probe the same topic.
-
-
-==================================================
-DECISION 2: NEW_TOPIC
-==================================================
-
-Choose "new_topic" when:
-
-- The candidate demonstrated sufficient understanding of the current topic.
-- The answer was strong, comprehensive, technically accurate, and relevant.
-- Remaining omissions are minor or optional.
-- The current topic has already been explored sufficiently.
-- Further questioning would only test increasingly obscure details.
-- The candidate performed poorly and additional probing would not provide useful information.
-- Another important topic from the interview plan should now be assessed.
-- The interview needs better coverage of important skills or categories.
-
-
-==================================================
-CATEGORY BALANCE
-==================================================
-
-The interview should primarily evaluate technical and role-relevant abilities.
-
-The interview has five possible categories:
-
-1. "technical"
-2. "resumeBased"
-3. "projectBased"
-4. "problemSolving"
-5. "behavioral"
-
-Behavioral questions are important, but they must remain LIMITED.
-
-TARGET:
-
-- Behavioral questions: approximately 2–3 questions TOTAL during the interview.
-- Technical questions: several questions.
-- Project-based questions: several questions when relevant to the candidate's projects.
-- Problem-solving questions: several questions.
-- Resume-based questions: use when relevant to the candidate's background.
-
-IMPORTANT BEHAVIORAL LIMIT:
-
-Count the categories of the questions already asked in PREVIOUS CONVERSATION.
-
-If 3 or more behavioral questions have already been asked:
-
-- NEVER generate another behavioral question.
-- The next question MUST use another relevant category.
-- Prefer technical, projectBased, problemSolving, or resumeBased.
-
-If fewer than 3 behavioral questions have been asked:
-
-- Behavioral questions may still be used when they provide useful assessment.
-- Do NOT choose behavioral merely because it is an easy question to generate.
-- Do NOT use behavioral repeatedly.
-- Prefer uncovered technical or role-specific topics when appropriate.
-
-If the CURRENT QUESTION is behavioral and it has already been sufficiently answered:
-
-- Prefer moving to technical, projectBased, problemSolving, or resumeBased.
-- Do NOT generate another behavioral question simply because the candidate's answer was weak.
-- Only generate another behavioral question if there is a specific important behavioral competency that remains genuinely necessary to assess AND fewer than 3 behavioral questions have been asked.
-
-
-==================================================
-CATEGORY SELECTION PRIORITY
-==================================================
-
-When choosing "new_topic", prioritize categories and topics that have not been sufficiently assessed.
-
-Use this general priority:
-
-1. Important uncovered technical topics
-2. Important uncovered projectBased topics
-3. Important uncovered problemSolving topics
-4. Relevant uncovered resumeBased topics
-5. Behavioral topics, only when fewer than 3 behavioral questions have been asked and behavioral assessment is still needed
-
-This is a priority, not a rigid sequence.
-
-Always consider the actual interview plan and job description.
-
-For example, if the role is a Backend Developer and the interview plan contains:
-
-- Node.js
-- Express.js
-- REST APIs
-- MongoDB
-- Authentication
-- Error handling
-- Debugging
-- Backend architecture
-- DSA
-- Projects
-- Behavioral
-
-and the candidate has already answered several behavioral questions, prioritize uncovered backend topics instead of generating another behavioral question.
-
-
-==================================================
-TOPIC COVERAGE
-==================================================
-
-Before selecting the next question, examine PREVIOUS CONVERSATION.
-
-Identify:
-
-- Topics already assessed
-- Topics assessed multiple times
-- Topics not yet assessed
-- Categories already overused
-- Important topics from the interview plan that remain uncovered
-
-Avoid repeating a topic unless deeper investigation is genuinely useful.
-
-The next question should ideally cover an important topic that has not received enough evidence.
-
-Do not ask the same type of question repeatedly just because the candidate answered the previous question well.
-
-
-==================================================
-CATEGORY COUNTING
-==================================================
-
-Before making your decision, mentally count the categories in PREVIOUS CONVERSATION:
-
-technical = number of technical questions
-resumeBased = number of resumeBased questions
-projectBased = number of projectBased questions
-problemSolving = number of problemSolving questions
-behavioral = number of behavioral questions
-
-Also identify the important topics that have already been assessed.
-
-Use these counts when deciding the next question.
-
-CRITICAL RULE:
-
-If behavioral >= 3:
-
-You MUST NOT generate a behavioral question.
-
-Choose another relevant category instead.
-
-
-==================================================
-DECISION 3: COMPLETE
-==================================================
-
-Choose "complete" ONLY when:
-
-- The current question number is AT LEAST 15.
-- Enough meaningful evidence has been collected about the candidate.
-- Important areas from the interview plan have been sufficiently covered.
-- Additional questions are unlikely to provide meaningful new information.
-- The interview has assessed enough technical, project, problem-solving, and relevant behavioral abilities.
-- Ending the interview is better than continuing.
-
-NEVER choose "complete" before Question 15.
-
-The interview may continue beyond Question 15 if additional assessment is useful.
-
-Question 25 is the absolute maximum.
-
-The backend will force completion at Question 25.
-
-A strong answer does NOT automatically mean the interview should end.
-
-At Question 15 or later, determine whether enough evidence has been collected across the important categories and topics.
-
-If important areas are still missing:
-
-- choose "new_topic"
-- or choose "follow_up" if the current topic genuinely requires deeper assessment.
-
-If enough evidence has been collected:
-
-- choose "complete".
-
-
-==================================================
-IMPORTANT ANTI-REPETITION RULES
-==================================================
-
-Do NOT:
-
-- Ask multiple behavioral questions consecutively when other important categories remain.
-- Continue asking questions about a topic that has already been sufficiently assessed.
-- Ask a follow-up simply because the candidate's answer was not perfect.
-- Generate another question from an already overrepresented category when an important uncovered category exists.
-- End the interview early simply because the candidate gave one strong answer.
-- Treat every weak answer as a reason for a follow-up.
-- Repeat the same topic using slightly different wording.
-
-
-==================================================
-QUESTION QUALITY
-==================================================
-
-Every generated question must:
-
-- Be relevant to the candidate's role.
-- Be relevant to the interview plan.
-- Be appropriate for the candidate's stated experience level.
-- Be based on the job description when relevant.
-- Test meaningful knowledge, reasoning, experience, or problem-solving ability.
-- Avoid unnecessary repetition.
-- Have a clear assessment purpose.
-
-For projectBased questions, use the candidate's actual projects when available.
-
-For resumeBased questions, use information from the candidate's resume.
-
-For technical questions, prioritize technologies and skills relevant to the role.
-
-For problemSolving questions, test reasoning, debugging, design, algorithms, or practical engineering decisions.
-
-For behavioral questions, assess genuinely useful professional competencies such as ownership, communication, prioritization, teamwork, adaptability, or handling challenges.
-
-
-==================================================
-CURRENT QUESTION CATEGORY
-==================================================
-
-When deciding whether to follow up, identify the category of the CURRENT QUESTION.
-
-If the current question is:
-
-- technical → follow up technically if needed
-- projectBased → follow up on the project if needed
-- problemSolving → follow up on the problem if needed
-- resumeBased → follow up on the resume experience if needed
-- behavioral → normally move to another category after sufficient assessment
-
-
-==================================================
-OUTPUT REQUIREMENTS
-==================================================
-
-Return ONLY valid JSON.
-
-Do NOT include:
-
-- Markdown
-- Code fences
-- Explanations outside JSON
-- Additional fields
-
-If decision is "complete":
-
-- "question" MUST be an empty string.
-- "category" should be the category of the last assessed question.
-- "topic" should be the current topic.
-- "reason" should briefly explain why enough evidence has been collected.
-
-If decision is "follow_up":
-
-- Generate a question that continues the CURRENT topic.
-- Keep the appropriate category.
-- Explain briefly why deeper investigation is useful.
-
-If decision is "new_topic":
-
-- Generate a question about a DIFFERENT important topic.
-- Prefer an uncovered category/topic.
-- Do not generate another behavioral question if behavioral >= 3.
-
-Return exactly this structure:
-
+RULES:
+1. "decision":
+   - "follow_up": probe deeper into the CURRENT phase ("${currentPhase}") and current topic if the answer lacked depth or raised points worth investigating.
+   - "new_topic": move to a new topic or the next phase.
+   - "complete": end the interview if at least 5 questions have been answered and comprehensive signal has been gathered across the phases (or if approaching time limit).
+2. If the current question count is less than 5, NEVER choose "complete".
+3. If decision is "follow_up", "is_followup" must be true, and "phase" MUST remain "${currentPhase}".
+4. "question": exactly 1-2 sentences. No greetings, no notes.
+5. "based_on": specific project, skill, or requirement.
+6. "transition": natural spoken transition leading into this question (or null).
+
+Return ONLY valid JSON matching this structure:
 {
-  "decision": "follow_up" or "new_topic" or "complete",
-  "question": "The next interview question, or an empty string if completing",
-  "category": "technical" or "resumeBased" or "projectBased" or "problemSolving" or "behavioral",
-  "topic": "Specific topic being assessed",
-  "reason": "Brief explanation for why this decision and question were chosen"
+  "decision": "follow_up" | "new_topic" | "complete",
+  "phase": "${currentPhase}",
+  "question": "1-2 sentence question (or empty string if completing)",
+  "is_followup": true | false,
+  "based_on": "specific project/skill/requirement",
+  "transition": "transition phrase or null"
 }
 `;
 
@@ -1106,6 +841,23 @@ Return exactly this structure:
       response.text,
       "generateFollowUp"
     );
+
+    followUp.phase = followUp.phase || currentPhase;
+    followUp.is_followup = followUp.decision === "follow_up";
+    followUp.based_on = followUp.based_on || interview.role;
+    followUp.transition = followUp.transition || null;
+    if (!followUp.category) {
+      const categoryPhaseMap = {
+        warmup: "behavioral",
+        resume: "resumeBased",
+        technical: "technical",
+        problem_solving: "problemSolving",
+        behavioral: "behavioral",
+      };
+      followUp.category = categoryPhaseMap[followUp.phase] || "technical";
+      followUp.topic = followUp.based_on;
+      followUp.reason = followUp.transition || `Follow-up for ${followUp.phase}`;
+    }
 
     const validatorFollowUp = followUpSchema.parse(followUp);
 
@@ -1210,6 +962,9 @@ const getAiClient = () => {
 };
 
 module.exports = {
+  PHASES,
+  PHASE_TIME_BUDGETS_MINUTES,
+  determineNextPhase,
   testGeminiConnection,
   generateInterviewPlan,
   generateQuestion,

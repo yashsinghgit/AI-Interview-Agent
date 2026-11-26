@@ -12,7 +12,29 @@ const conversationSchema = new mongoose.Schema(
       default: "",
     },
 
-    evaluation: {
+    phase: {
+      type: String,
+      enum: ["warmup", "resume", "technical", "problem_solving", "behavioral"],
+      default: "warmup",
+    },
+
+    is_followup: {
+      type: Boolean,
+      default: false,
+    },
+
+    based_on: {
+      type: String,
+      default: "",
+    },
+
+    transition: {
+      type: String,
+      default: null,
+    },
+
+    // Evaluation fields (written to the user as "you")
+    headline: {
       type: String,
       default: "",
     },
@@ -25,6 +47,38 @@ const conversationSchema = new mongoose.Schema(
     strengths: {
       type: [String],
       default: [],
+    },
+
+    improvements: {
+      type: [String],
+      default: [],
+    },
+
+    subscores: {
+      structure: { type: Number, default: null },
+      depth: { type: Number, default: null },
+      impact: { type: Number, default: null },
+      relevance: { type: Number, default: null },
+    },
+
+    stronger_answer: {
+      type: String,
+      default: "",
+    },
+
+    enough_signal: {
+      type: Boolean,
+      default: false,
+    },
+
+    reason: {
+      type: String,
+      default: "",
+    },
+
+    evaluation: {
+      type: String,
+      default: "",
     },
 
     weaknesses: {
@@ -40,22 +94,10 @@ const conversationSchema = new mongoose.Schema(
 
     category: {
       type: String,
-      enum: [
-        "technical",
-        "resumeBased",
-        "projectBased",
-        "problemSolving",
-        "behavioral",
-      ],
       default: "technical",
     },
 
     topic: {
-      type: String,
-      default: "",
-    },
-
-    reason: {
       type: String,
       default: "",
     },
@@ -78,10 +120,33 @@ const interviewSchema = new mongoose.Schema(
       required: true,
     },
 
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
     role: {
       type: String,
       required: true,
       trim: true,
+    },
+
+    mode: {
+      type: String,
+      enum: ["practice", "mock"],
+      default: "practice",
+    },
+
+    currentPhase: {
+      type: String,
+      enum: ["warmup", "resume", "technical", "problem_solving", "behavioral"],
+      default: "warmup",
+    },
+
+    greeting: {
+      type: String,
+      default: null,
     },
 
     difficulty: {
@@ -230,7 +295,7 @@ const interviewSchema = new mongoose.Schema(
 
     durationMinutes: {
       type: Number,
-      default: 30,
+      default: 20,
     },
 
     expiresAt: {

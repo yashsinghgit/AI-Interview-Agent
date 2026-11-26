@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, ArrowLeft, LogIn } from "lucide-react";
 import { AxiosError } from "axios";
+import { toast } from "sonner";
 import api from "../services/api";
-
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -17,7 +17,7 @@ function LoginPage() {
   // Resend verification email
   async function handleResendVerification() {
     if (!username) {
-      alert("Please enter your email first.");
+      toast.error("Please enter your email first.", { duration: 4000 });
       return;
     }
 
@@ -29,23 +29,32 @@ function LoginPage() {
       const data = response.data;
 
       if (response.status >= 200 && response.status < 300) {
-        alert(data.message || "Verification email sent! Please check your inbox.");
+        toast.success(
+          data.message || "Verification email sent. Please check your inbox.",
+          { duration: 4000 }
+        );
       } else {
-        alert(data.message);
+        toast(data.message, { duration: 4000 });
       }
     } catch (error) {
       console.error("Resend verification error:", error);
       const axiosError = error as AxiosError<{ message?: string }>;
-      alert(
+      const reason =
         axiosError.response?.data?.message ||
-          "Failed to resend verification email. Please try again later."
-      );
+        "Failed to resend verification email. Please try again later.";
+      toast.error(reason, {
+        duration: 6000,
+        action: {
+          label: "Retry",
+          onClick: () => handleResendVerification(),
+        },
+      });
     }
   }
 
   async function handleLogin() {
     if (!username || !password) {
-      alert("Please fill in all fields.");
+      toast.error("Please fill in all fields.", { duration: 4000 });
       return;
     }
 
@@ -70,7 +79,18 @@ function LoginPage() {
 
       localStorage.removeItem("token");
 
-      alert(axiosError.response?.data?.message || "Something went wrong!");
+      const reason =
+        axiosError.response?.data?.message ||
+        axiosError.message ||
+        "Login failed. Please check your credentials.";
+
+      toast.error(reason, {
+        duration: 6000,
+        action: {
+          label: "Retry",
+          onClick: () => handleLogin(),
+        },
+      });
 
       if (axiosError.response?.status === 403) {
         setShowResend(true);

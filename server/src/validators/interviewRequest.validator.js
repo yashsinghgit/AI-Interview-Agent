@@ -34,6 +34,7 @@ const createInterviewSchema = z
       .max(50000, "Resume text must not exceed 50,000 characters")
       .optional()
       .nullable(),
+    mode: z.enum(["practice", "mock"]).default("practice").optional(),
   })
   .strict();
 
@@ -58,6 +59,7 @@ const updateInterviewSchema = z
       .max(50000, "Resume text must not exceed 50,000 characters")
       .optional()
       .nullable(),
+    mode: z.enum(["practice", "mock"]).default("practice").optional(),
   })
   .strict();
 

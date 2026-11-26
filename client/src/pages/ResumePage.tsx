@@ -1,16 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Upload, FileText, CheckCircle2, ArrowRight } from "lucide-react";
-import * as pdfjsLib from "pdfjs-dist";
-import mammoth from "mammoth";
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_TEXT_LENGTH = 50000; // 50,000 characters limit
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+import { parseResumeFile, MAX_FILE_SIZE, MAX_TEXT_LENGTH } from "../utils/resumeParser";
 
 function ResumePage() {
   const navigate = useNavigate();
@@ -24,36 +15,6 @@ function ResumePage() {
   useEffect(() => {
     localStorage.removeItem("resumeText");
   }, []);
-
-  const extractPdfText = async (file: File) => {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    let text = "";
-
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-      const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-
-      const pageText = content.items
-        .map((item: unknown) => (item as { str?: string })?.str || "")
-        .join(" ");
-
-      text += pageText + "\n";
-    }
-
-    return text.trim();
-  };
-
-  const extractDocxText = async (file: File) => {
-    const arrayBuffer = await file.arrayBuffer();
-
-    const result = await mammoth.extractRawText({
-      arrayBuffer,
-    });
-
-    return result.value.trim();
-  };
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -74,35 +35,10 @@ function ResumePage() {
     setLoading(true);
 
     try {
-      let extractedText = "";
-
-      if (selectedFile.type === "application/pdf") {
-        extractedText = await extractPdfText(selectedFile);
-      } else if (
-        selectedFile.type ===
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        selectedFile.name.toLowerCase().endsWith(".docx")
-      ) {
-        extractedText = await extractDocxText(selectedFile);
-      } else {
-        throw new Error("Please upload a PDF or DOCX file.");
-      }
-
-      if (!extractedText) {
-        throw new Error(
-          "Could not extract text from this resume. Try another file.",
-        );
-      }
-
-      if (extractedText.length > MAX_TEXT_LENGTH) {
-        extractedText = extractedText.slice(0, MAX_TEXT_LENGTH);
-      }
-
-      // Keep resume text in application React state only (do not write to localStorage)
-      setResumeText(extractedText);
+      const parsed = await parseResumeFile(selectedFile);
+      setResumeText(parsed.text);
     } catch (error: unknown) {
       console.error("RESUME EXTRACTION ERROR:", error);
-
       setError(
         (error as Error)?.message || "Failed to extract text from the resume.",
       );
