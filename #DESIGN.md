@@ -111,3 +111,6 @@ by default.
    generic. If you find nothing, look again and list three.
 4. Never invent social proof: no fake user counts, ratings, testimonials
     or company logos. Use only claims that are true today.
+5. Signature: the "red pen". Accent-colored hand-drawn underlines and
+    margin notes mark where the user can improve, on the landing page,
+    feedback and report. Do not use the accent for anything else decorative.
